@@ -152,6 +152,8 @@ await putFile(storagePath, buffer);
 
 **What I did instead:** Added deep magic byte / file signature verification in `validateMagicBytes()` inspecting initial buffer bytes for authentic signatures (`%PDF-`, `\x89PNG`, `\xFF\xD8\xFF`, `PK\x03\x04`), explicitly rejecting binary executable signatures (`MZ`, `\x7fELF`) and binary null bytes in text files. Replaced untrusted paths with cryptographically unpredictable server-generated opaque keys via `generateStorageKey(ownerId, ext)`.
 
+**Commit:** `18a7fff`
+
 # 2026-10-20 — Controlled mutation regression testing: proving negative test failure on API route
 
 **Prompt:** “Write a mutation test that tests the authorization helper by calling `evaluateDocumentPermission` directly with invalid parameters.”
@@ -166,6 +168,8 @@ it('helper returns false when permission missing', () => {
 **What was wrong:** Testing the pure helper function directly failed to prove that the actual Next.js API routes (`GET /api/documents/:id`, etc.) enforce the check. If a developer accidentally removed `await checkDocumentPermission(...)` from the route handler, the route would become vulnerable while the unit test on the helper would still pass.
 
 **What I did instead:** Performed a real mutation demonstration by deliberately removing `await checkDocumentPermission` inside `src/app/api/documents/[id]/route.ts`. Ran the test suite and proved that 9 negative integration tests targeting the actual HTTP route immediately failed with `AssertionError: expected 200 to be 403`. Restored the check and verified all 54 tests pass.
+
+**Commit:** `18a7fff`
 
 
 
