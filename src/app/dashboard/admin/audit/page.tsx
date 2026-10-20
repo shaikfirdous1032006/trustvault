@@ -11,6 +11,8 @@ import {
   AlertTriangle,
   Clock,
   Shield,
+  Loader2,
+  Key,
 } from "lucide-react";
 
 interface AuditEvent {
@@ -52,7 +54,32 @@ export default function AdminAuditPage() {
   const [total, setTotal] = useState(0);
   const [actionFilter, setActionFilter] = useState("all");
   const [resultFilter, setResultFilter] = useState("all");
+  const [verifying, setVerifying] = useState(false);
+  const [verificationResult, setVerificationResult] = useState<{
+    valid: boolean;
+    mismatches: Array<{ id: string; expected: string; actual: string }>;
+    verified_at?: string;
+  } | null>(null);
   const pageSize = 30;
+
+  async function handleVerifyChain() {
+    setVerifying(true);
+    try {
+      const res = await fetch("/api/admin/audit/verify", { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        setVerificationResult({
+          valid: data.valid,
+          mismatches: data.mismatches || [],
+          verified_at: data.verified_at,
+        });
+      }
+    } catch {
+      /* ignored */
+    } finally {
+      setVerifying(false);
+    }
+  }
 
   const fetchEvents = useCallback(async () => {
     setLoading(true);
@@ -94,20 +121,70 @@ export default function AdminAuditPage() {
         </p>
       </div>
 
-      {/* Security info */}
-      <div className="card-glass flex items-start gap-3 mb-6 p-4">
-        <Shield className="w-5 h-5 text-brand-400 flex-shrink-0 mt-0.5" />
-        <div className="text-sm">
-          <p className="font-medium text-brand-300">
-            Immutable Audit Trail
-          </p>
-          <p className="text-[var(--muted)] text-xs mt-0.5">
-            Events are hash-chained using SHA-256. Database triggers prevent
-            UPDATE, DELETE, and TRUNCATE. Each event references its predecessor
-            for tamper detection.
+      {/* Security info & Audit Chain Verification */}
+      <div className="card-glass flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 p-4">
+        <div className="flex items-start gap-3">
+          <Shield className="w-5 h-5 text-brand-700 flex-shrink-0 mt-0.5" />
+          <div className="text-sm">
+            <p className="font-semibold text-[var(--foreground)]">
+              Tamper-Evident SHA-256 Audit Trail
+            </p>
+            <p className="text-[var(--muted)] text-xs mt-0.5">
+              Events are cryptographically chained. Each record hashes its canonical data with its predecessor hash.
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={handleVerifyChain}
+          disabled={verifying}
+          className="btn btn-primary btn-sm flex-shrink-0"
+          id="verify-audit-chain-btn"
+        >
+          {verifying ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Verifying Chain...
+            </>
+          ) : (
+            <>
+              <Key className="w-4 h-4" />
+              Verify Hash Chain
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* Verification result report */}
+      {verificationResult && (
+        <div
+          className={`mb-6 p-4 rounded-xl border animate-fade-in ${
+            verificationResult.valid
+              ? "bg-success/5 border-success/30 text-success"
+              : "bg-danger/5 border-danger/30 text-danger"
+          }`}
+          id="audit-verification-banner"
+        >
+          <div className="flex items-center gap-2 font-semibold text-sm">
+            {verificationResult.valid ? (
+              <>
+                <CheckCircle2 className="w-5 h-5 text-success" />
+                Audit Hash Chain Verified: 100% Cryptographically Sound
+              </>
+            ) : (
+              <>
+                <AlertTriangle className="w-5 h-5 text-danger" />
+                Tampering Detected: Hash Chain Mismatches Found ({verificationResult.mismatches.length})
+              </>
+            )}
+          </div>
+          <p className="text-xs text-[var(--muted)] mt-1 ml-7">
+            {verificationResult.valid
+              ? `All ${total} logged events verify against their canonical SHA-256 hashes and previous hash pointers.`
+              : `One or more audit events have altered event data, missing links, or forged hashes.`}
+            {verificationResult.verified_at && ` (Verified at ${new Date(verificationResult.verified_at).toLocaleTimeString()})`}
           </p>
         </div>
-      </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3 mb-6">

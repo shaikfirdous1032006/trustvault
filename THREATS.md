@@ -272,10 +272,28 @@ Each threat follows the format: **Threat → Mitigation → Residual Risk → Ac
 
 ## 23. Environment Variable Exposure
 
-**Threat:** Secrets (service role key) are accidentally committed to the repository or leaked in client bundles.
+**Threat:** Secrets (service role key, session secrets) are accidentally committed to the repository or leaked in client bundles.
 
-**Mitigation:** `.env.local` in `.gitignore`. Only `NEXT_PUBLIC_*` variables are sent to the client. `SUPABASE_SERVICE_ROLE_KEY` has no `NEXT_PUBLIC_` prefix.
+**Mitigation:** `.env.local` and `.env` in `.gitignore`. Only `NEXT_PUBLIC_*` variables are sent to the client. `SUPABASE_SERVICE_ROLE_KEY` and `SESSION_SECRET` have no `NEXT_PUBLIC_` prefix.
 
 **Residual Risk:** A developer might rename the variable with `NEXT_PUBLIC_` prefix.
 
-**Accepted Risk:** Code review should catch this.
+**Accepted Risk:** Code review and pre-commit scans catch this.
+
+---
+
+## 24. Privileged Database Superuser Chain Rewrite (Honest Immutability Analysis & External Anchoring)
+
+**Threat:** An attacker who gains PostgreSQL superuser (`postgres` or cloud DB root) privileges could temporarily disable row triggers (`ALTER TABLE audit_events DISABLE TRIGGER ALL;`), recalculate the SHA-256 hashes starting from any historical event, rewrite the chain forward to the present, and re-enable triggers. A local hash chain alone cannot prevent this inside the same database boundary.
+
+**Honest Assessment:** The audit log cannot be described as "absolutely immutable" against an adversary with root database write privileges. Within the application boundary, it is append-only and tamper-evident against application actors, administrators, and compromised service tokens.
+
+**Mitigation & External Anchoring Strategy:**
+To protect against database-level rewriting, TrustVault supports an **External Anchoring Approach**:
+1. **Periodic Merkle / State Head Anchoring:** The latest `event_hash` (the chain head) is periodically signed and committed outside the database (e.g., to AWS CloudWatch with WORM retention, a public RFC 3161 Timestamping Authority, an external immutable append-only ledger, or a Git commit pushed to an external hardened repository).
+2. **Verification against External Anchor:** Even if an attacker rewires the entire internal database table, the recomputed head hash will fail verification against the external, independent anchor.
+
+**Residual Risk:** Time gap between the occurrence of an event and the next external anchor interval (e.g., 5-minute anchoring window).
+
+**Accepted Risk:** Accepted as standard state-of-the-art practice for enterprise tamper evidence without requiring costly distributed consensus on every write transaction.
+

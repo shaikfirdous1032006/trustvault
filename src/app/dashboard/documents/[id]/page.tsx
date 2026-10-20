@@ -24,6 +24,7 @@ import {
   Hash,
   HardDrive,
   User,
+  Sparkles,
 } from "lucide-react";
 
 interface DocOwner {
@@ -48,6 +49,7 @@ interface Document {
   created_at: string;
   updated_at: string;
   owner: DocOwner;
+  access?: { is_owner: boolean; can_edit: boolean; can_delete: boolean };
 }
 
 interface Permission {
@@ -113,6 +115,7 @@ export default function DocumentDetailPage({
 
   // Download state
   const [downloading, setDownloading] = useState(false);
+  const [me, setMe] = useState<{ id: string; role: string } | null>(null);
 
   // Delete state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -120,6 +123,12 @@ export default function DocumentDetailPage({
 
   useEffect(() => {
     paramsPromise.then(setParams);
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success) setMe(data.data);
+      })
+      .catch(() => undefined);
   }, [paramsPromise]);
 
   const docId = params?.id;
@@ -199,12 +208,20 @@ export default function DocumentDetailPage({
     setDownloading(true);
     try {
       const res = await fetch(`/api/documents/${docId}/download`);
-      const data = await res.json();
-      if (data.success) {
-        window.open(data.data.url, "_blank");
-      } else {
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: "Download failed" }));
         alert(data.error || "Download failed");
+        return;
       }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const disposition = res.headers.get("Content-Disposition");
+      const match = disposition?.match(/filename="([^"]+)"/);
+      a.href = url;
+      a.download = match?.[1] || doc?.file_name || "document";
+      a.click();
+      URL.revokeObjectURL(url);
     } catch {
       alert("Download failed");
     } finally {
@@ -282,15 +299,31 @@ export default function DocumentDetailPage({
     );
   }
 
+  const isOwner = Boolean(doc.access?.is_owner || (me && me.id === doc.owner_id));
+  const canDelete = Boolean(doc.access?.can_delete || isOwner);
+  const canSeeAudit = isOwner || me?.role === "admin";
+
   const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
     { key: "details", label: "Details", icon: <FileText className="w-4 h-4" /> },
-    {
-      key: "permissions",
-      label: "Permissions",
-      icon: <Shield className="w-4 h-4" />,
-    },
+    ...(isOwner
+      ? [
+          {
+            key: "permissions" as const,
+            label: "Permissions",
+            icon: <Shield className="w-4 h-4" />,
+          },
+        ]
+      : []),
     { key: "versions", label: "Versions", icon: <Clock className="w-4 h-4" /> },
-    { key: "audit", label: "Audit Trail", icon: <Activity className="w-4 h-4" /> },
+    ...(canSeeAudit
+      ? [
+          {
+            key: "audit" as const,
+            label: "Audit Trail",
+            icon: <Activity className="w-4 h-4" />,
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -305,8 +338,8 @@ export default function DocumentDetailPage({
 
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-brand-600/15 flex items-center justify-center flex-shrink-0">
-            <FileText className="w-6 h-6 text-brand-400" />
+          <div className="w-12 h-12 rounded-xl bg-brand-700/10 flex items-center justify-center flex-shrink-0">
+            <FileText className="w-6 h-6 text-brand-700" />
           </div>
           <div>
             <h1 className="text-2xl font-bold">{doc.title}</h1>
@@ -351,7 +384,7 @@ export default function DocumentDetailPage({
             onClick={() => setActiveTab(tab.key)}
             className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-all whitespace-nowrap ${
               activeTab === tab.key
-                ? "border-brand-500 text-brand-400"
+                ? "border-brand-700 text-brand-700 font-semibold"
                 : "border-transparent text-[var(--muted)] hover:text-[var(--foreground)]"
             }`}
           >
@@ -387,6 +420,8 @@ export default function DocumentDetailPage({
       {showGrantModal && (
         <GrantPermissionModal
           docId={doc.id}
+          docTitle={doc.title}
+          docCategory={doc.category}
           onClose={() => setShowGrantModal(false)}
           onSuccess={() => {
             setShowGrantModal(false);
@@ -648,7 +683,7 @@ function PermissionsTab({
       <div className="card">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold flex items-center gap-2">
-            <Shield className="w-5 h-5 text-brand-400" />
+            <Shield className="w-5 h-5 text-brand-700" />
             Active Permissions ({activePermissions.length})
           </h3>
           {isOwner && (
@@ -666,7 +701,7 @@ function PermissionsTab({
                 className="flex items-center justify-between p-3 rounded-lg bg-[var(--input-bg)]"
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-brand-500/20 flex items-center justify-center text-brand-400 text-xs font-bold">
+                  <div className="w-8 h-8 rounded-full bg-brand-700/10 flex items-center justify-center text-brand-700 text-xs font-bold">
                     {perm.user?.full_name?.[0] || perm.user?.email?.[0]}
                   </div>
                   <div>
@@ -804,7 +839,7 @@ function VersionsTab({
       <div className="card">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold flex items-center gap-2">
-            <Clock className="w-5 h-5 text-brand-400" />
+            <Clock className="w-5 h-5 text-brand-700" />
             Version History ({versions.length})
           </h3>
           <button
@@ -929,7 +964,7 @@ function AuditTab({
   return (
     <div className="card animate-fade-in">
       <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
-        <Activity className="w-5 h-5 text-brand-400" />
+        <Activity className="w-5 h-5 text-brand-700" />
         Audit Trail ({events.length} events)
       </h3>
 
@@ -955,6 +990,14 @@ function AuditTab({
                     <span className="badge badge-neutral">
                       {formatAction(event.action)}
                     </span>
+                    {Boolean(event.details_jsonb?.ai_suggested) && (
+                      <span
+                        className="badge badge-brand ml-1.5 text-[10px] inline-flex items-center gap-1"
+                        title={String(event.details_jsonb?.ai_rationale || "AI recommendation confirmed by human owner")}
+                      >
+                        <Sparkles className="w-2.5 h-2.5" /> AI Assisted
+                      </span>
+                    )}
                   </td>
                   <td>
                     <span
@@ -993,10 +1036,14 @@ function AuditTab({
 
 function GrantPermissionModal({
   docId,
+  docTitle,
+  docCategory,
   onClose,
   onSuccess,
 }: {
   docId: string;
+  docTitle: string;
+  docCategory: string;
   onClose: () => void;
   onSuccess: () => void;
 }) {
@@ -1005,6 +1052,30 @@ function GrantPermissionModal({
   const [expiresAt, setExpiresAt] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [aiSuggested, setAiSuggested] = useState(false);
+  const [aiRationale, setAiRationale] = useState("");
+  const [aiExpanded, setAiExpanded] = useState(false);
+
+  function generateAiRecommendation() {
+    const isHighSensitivity = ["financial", "legal", "hr"].includes(docCategory?.toLowerCase() || "");
+    const days = isHighSensitivity ? 14 : 30;
+    const future = new Date(Date.now() + days * 86400000);
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    const formattedDate = `${future.getFullYear()}-${pad(future.getMonth() + 1)}-${pad(future.getDate())}T${pad(future.getHours())}:${pad(future.getMinutes())}`;
+
+    const rationale = isHighSensitivity
+      ? `Least Privilege Policy: "${docCategory}" classification mandates time-bound read access (${days} days). Edit permission restricted to authors.`
+      : `Standard Organization Policy: Read-only access recommended with a ${days}-day expiration window.`;
+
+    setLevel("read");
+    setExpiresAt(formattedDate);
+    if (!email) {
+      setEmail("viewer@example.com");
+    }
+    setAiSuggested(true);
+    setAiRationale(rationale);
+    setAiExpanded(true);
+  }
 
   async function handleGrant(e: React.FormEvent) {
     e.preventDefault();
@@ -1019,6 +1090,8 @@ function GrantPermissionModal({
           user_email: email,
           permission_level: level,
           expires_at: expiresAt || undefined,
+          ai_suggested: aiSuggested,
+          ai_rationale: aiRationale || undefined,
         }),
       });
       const data = await res.json();
@@ -1045,6 +1118,43 @@ function GrantPermissionModal({
           <button onClick={onClose} className="btn btn-ghost btn-sm">
             <X className="w-4 h-4" />
           </button>
+        </div>
+
+        {/* AI Access Advisor Card */}
+        <div className="mb-4 p-3.5 rounded-xl bg-surface-200 border border-brand-700/20">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-brand-700 animate-pulse" />
+              <span className="text-xs font-semibold text-brand-700 uppercase tracking-wider">
+                AI Access Advisor
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={generateAiRecommendation}
+              className="btn btn-xs bg-brand-700 hover:bg-brand-800 text-white rounded-lg px-2.5 py-1 text-xs font-medium transition-all shadow-sm flex items-center gap-1.5"
+            >
+              <Sparkles className="w-3 h-3" />
+              Suggest Safe Policy
+            </button>
+          </div>
+
+          {aiExpanded && (
+            <div className="mt-3 pt-3 border-t border-brand-700/20 text-xs space-y-1.5 animate-fade-in">
+              <p className="font-semibold text-brand-800">
+                💡 AI Policy Recommendation Applied:
+              </p>
+              <p className="text-[var(--foreground)] opacity-85 leading-relaxed">
+                {aiRationale}
+              </p>
+              <div className="flex items-start gap-1.5 text-[11px] text-amber-800 mt-2 bg-amber-500/10 p-2 rounded-lg border border-amber-600/20">
+                <Shield className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-amber-700" />
+                <span>
+                  <strong>Strict Security Guardrail:</strong> AI cannot automatically widen or grant access. As document owner, you must confirm this grant. Both the recommendation and your decision will be immutably recorded in the SHA-256 audit trail.
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
         {error && (

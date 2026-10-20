@@ -1,21 +1,23 @@
-import { createClient } from '@/lib/supabase/server';
+import { createClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import { logAuditEvent } from '@/lib/audit';
 import { getRequestMeta, getAuthenticatedUser } from '@/lib/auth';
-import { NextRequest, NextResponse } from 'next/server';
+import { SESSION_COOKIE } from '@/lib/session';
+import { NextResponse } from 'next/server';
 
-/**
- * POST /api/auth/logout
- * Authenticated endpoint. Signs out the current user.
- * Audit: logs logout event.
- */
-export async function POST(request: NextRequest) {
+export async function POST() {
   const { ipAddress, userAgent } = await getRequestMeta();
 
   try {
     const user = await getAuthenticatedUser();
-    const supabase = await createClient();
 
-    await supabase.auth.signOut();
+    if (isSupabaseConfigured()) {
+      try {
+        const supabase = await createClient();
+        await supabase.auth.signOut();
+      } catch {
+        // ignore
+      }
+    }
 
     if (user) {
       await logAuditEvent({
@@ -28,11 +30,16 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    return NextResponse.json({ success: true, message: 'Logged out' });
+    const res = NextResponse.json({ success: true, message: 'Logged out' });
+    res.cookies.delete(SESSION_COOKIE);
+    res.cookies.delete('trustvault_demo_session');
+    return res;
   } catch {
-    return NextResponse.json(
+    const res = NextResponse.json(
       { success: false, error: 'Internal server error' },
       { status: 500 }
     );
+    res.cookies.delete(SESSION_COOKIE);
+    return res;
   }
 }

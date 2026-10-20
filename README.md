@@ -91,7 +91,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 ### 6. Run Tests
 
 ```bash
-# Automated security & authorization test suite (33 tests)
+# Automated security & authorization test suite (54 passing tests, A through T)
 npm test
 
 # Watch mode
@@ -101,6 +101,16 @@ npm run test:watch
 npm run test:e2e
 ```
 
+### 7. Optional: Local Docker Infrastructure (PostgreSQL & MinIO S3)
+
+```bash
+# Spin up local PostgreSQL 16 and MinIO private S3 storage
+docker-compose up -d
+
+# Inspect Prisma database models
+npx prisma validate
+```
+
 ## Project Structure
 
 ```
@@ -108,38 +118,42 @@ trustvault/
 ├── src/
 │   ├── app/
 │   │   ├── api/                     # REST API route handlers
-│   │   │   ├── auth/                # Login, Logout
+│   │   │   ├── auth/                # Login, Logout, Session check
 │   │   │   ├── documents/           # CRUD, download, permissions, versions, audit
-│   │   │   └── admin/               # Admin-only: users, audit
-│   │   ├── dashboard/               # Protected dashboard pages
+│   │   │   └── admin/               # Admin-only: users, audit, verify hash chain
+│   │   ├── dashboard/               # Protected dashboard pages (Light theme, beige/brown)
 │   │   │   ├── documents/           # Document list & detail views
 │   │   │   ├── upload/              # Document upload with validation & hashing
 │   │   │   └── admin/               # Admin user management & audit log views
 │   │   ├── login/                   # Authentication page
-│   │   └── layout.tsx               # Root layout
-│   ├── components/                  # React components & sidebar
+│   │   └── layout.tsx               # Root layout (<html className="light">)
+│   ├── components/                  # React components & accessible sidebar
 │   ├── lib/
 │   │   ├── auth.ts                  # Authorization helpers & defense in depth
 │   │   ├── audit.ts                 # Audit logging with SHA-256 hash chain
+│   │   ├── permission.ts            # Permission evaluation, upload magic bytes, opaque keys
+│   │   ├── security.ts              # Sliding-window rate limiting & CSRF verification
+│   │   ├── session.ts               # Secure database/HMAC session management
 │   │   ├── types.ts                 # TypeScript type definitions
-│   │   ├── seed.ts                  # Demo account seeding script
 │   │   └── supabase/                # Supabase SSR and Admin client factories
-│   └── middleware.ts                # Session refresh + route protection
+├── prisma/
+│   └── schema.prisma                # Complete Prisma PostgreSQL schema definition
+├── docker-compose.yml               # Local PostgreSQL 16 & MinIO S3 container configuration
 ├── supabase/
 │   └── migrations/                  # SQL migrations (001_initial_schema.sql)
 ├── tests/
+│   ├── competition-a-to-t.test.ts   # Mandatory competition tests (A through T)
 │   ├── api-authorization.test.ts    # Comprehensive API & security tests
 │   ├── authorization.test.ts        # Database RLS integration tests
 │   ├── audit.test.ts                # Audit immutability & hash chain tests
-│   ├── helpers.ts                   # Test client factories & helpers
-│   ├── setup.ts                     # Test setup configuration
-│   └── e2e/                         # Playwright browser end-to-end tests
+│   └── helpers.ts                   # Test client factories & helpers
 ├── docs/
 │   ├── API.md                       # Complete REST API reference & auth boundaries
 │   ├── ARCHITECTURE.md              # Architecture write-up
 │   └── DEMO_SCRIPT.md               # 5-minute video demonstration script
-├── THREATS.md                       # Comprehensive 23-threat security model
-├── PROMPTS.md                       # Dated AI prompt engineering journal
+├── THREATS.md                       # Comprehensive 24-threat security model & anchoring
+├── PROMPTS.md                       # Dated AI prompt engineering journal (8 entries)
+├── render.yaml                      # Render.com deployment Blueprint configuration
 └── README.md                        # Project documentation
 ```
 
@@ -152,7 +166,31 @@ trustvault/
 3. Run `npm run seed` with your production env vars
 4. Note your project URL and keys
 
-### Vercel (Frontend)
+### Render.com Deployment (Full-Stack / Backend Web Service)
+
+TrustVault can be deployed directly to **[Render.com](https://render.com)** as a Node Web Service (or via the included `render.yaml` Blueprint):
+
+1. **Create Web Service on Render:**
+   - Connect your GitHub repository.
+   - **Environment:** `Node`
+   - **Build Command:** `npm install && npm run build`
+   - **Start Command:** `npm run start`
+   - **Plan:** Free or Starter
+
+2. **Render Environment Variables (`Environment` tab):**
+
+| Variable Name | Required? | Description / Value |
+|---|---|---|
+| `NODE_VERSION` | Yes | `20.18.0` |
+| `NEXT_PUBLIC_APP_URL` | Yes | `https://<your-service-name>.onrender.com` |
+| `DEMO_PASSWORD` | Yes | `TrustVault2024!` |
+| `NEXT_PUBLIC_SUPABASE_URL` | Optional | Your Supabase project URL (if using PostgreSQL + RLS mode) |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Optional | Supabase public/anon API key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Optional | Supabase service role key (Server-only secret) |
+
+> **Note on Standalone Mode on Render:** If Supabase keys are not provided, TrustVault automatically operates in self-contained zero-config mode with full cryptographic hash-chained audit trails, JWT sessions, demo accounts, and local disk storage. If you want files to persist across Render free-tier restarts without Supabase, you can optionally attach a Render Disk and set `DATA_DIR=/var/data`.
+
+### Vercel Deployment (Alternative Frontend Host)
 
 1. Push to a GitHub repository
 2. Import the repo in [Vercel](https://vercel.com)

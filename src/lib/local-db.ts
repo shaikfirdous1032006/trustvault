@@ -1,0 +1,363 @@
+import fs from 'fs';
+import path from 'path';
+import { createHash, randomUUID } from 'crypto';
+import type {
+  AuditEvent,
+  Document,
+  DocumentPermission,
+  DocumentVersion,
+  User,
+} from '@/lib/types';
+
+const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), '.data');
+const STORE_PATH = path.join(DATA_DIR, 'store.json');
+const FILES_DIR = path.join(DATA_DIR, 'files');
+
+export const DEMO_IDS = {
+  admin: 'usr-admin-demo-001',
+  owner: 'usr-owner-demo-002',
+  viewer: 'usr-viewer-demo-003',
+  docShared: 'demo-doc-1',
+  docPrivate: 'demo-doc-2',
+  grantViewer: 'perm-viewer-read-001',
+};
+
+export interface LocalStore {
+  users: User[];
+  documents: Document[];
+  permissions: DocumentPermission[];
+  versions: DocumentVersion[];
+  audit: AuditEvent[];
+}
+
+let writeChain: Promise<unknown> = Promise.resolve();
+
+function withLock<T>(fn: () => T): Promise<T> {
+  const next = writeChain.then(fn, fn);
+  writeChain = next.then(
+    () => undefined,
+    () => undefined
+  );
+  return next;
+}
+
+function sha256(data: string): string {
+  return createHash('sha256').update(data).digest('hex');
+}
+
+function computeEventHash(
+  occurredAt: string,
+  actorId: string | null,
+  documentId: string | null,
+  action: string,
+  result: string,
+  detailsJson: string,
+  prevHash: string | null
+): string {
+  return sha256(
+    [occurredAt, actorId ?? '', documentId ?? '', action, result, detailsJson, prevHash ?? ''].join('|')
+  );
+}
+
+function ensureDirs() {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.mkdirSync(FILES_DIR, { recursive: true });
+}
+
+function seedFile(name: string, contents: string): { storagePath: string; size: number; checksum: string } {
+  const storagePath = `seed/${name}`;
+  const full = path.join(FILES_DIR, storagePath);
+  fs.mkdirSync(path.dirname(full), { recursive: true });
+  fs.writeFileSync(full, contents, 'utf8');
+  const buf = Buffer.from(contents, 'utf8');
+  return {
+    storagePath,
+    size: buf.length,
+    checksum: createHash('sha256').update(buf).digest('hex'),
+  };
+}
+
+function seedStore(): LocalStore {
+  ensureDirs();
+  const now = new Date().toISOString();
+  const earlier = new Date(Date.now() - 3600_000).toISOString();
+  const earlier2 = new Date(Date.now() - 7200_000).toISOString();
+
+  const shared = seedFile(
+    'Q3_Financial_Audit.txt',
+    'TRUSTVAULT CONFIDENTIAL\nQ3 2026 Financial Audit & Forecast\nThis file is shared with viewer@example.com (read only).\n'
+  );
+  const priv = seedFile(
+    'Zero_Trust_Architecture.txt',
+    'TRUSTVAULT CONFIDENTIAL\nSecurity & Zero-Trust Architecture\nThis file is NOT shared with the viewer.\n'
+  );
+
+  const users: User[] = [
+    {
+      id: DEMO_IDS.admin,
+      email: 'admin@example.com',
+      full_name: 'Platform Administrator',
+      role: 'admin',
+      is_active: true,
+      created_at: earlier2,
+      updated_at: earlier2,
+    },
+    {
+      id: DEMO_IDS.owner,
+      email: 'owner@example.com',
+      full_name: 'Document Owner',
+      role: 'owner',
+      is_active: true,
+      created_at: earlier2,
+      updated_at: earlier2,
+    },
+    {
+      id: DEMO_IDS.viewer,
+      email: 'viewer@example.com',
+      full_name: 'Document Viewer',
+      role: 'viewer',
+      is_active: true,
+      created_at: earlier2,
+      updated_at: earlier2,
+    },
+  ];
+
+  const documents: Document[] = [
+    {
+      id: DEMO_IDS.docShared,
+      owner_id: DEMO_IDS.owner,
+      title: 'Q3 2026 Financial Audit & Forecast',
+      description: 'Highly confidential corporate audit and fiscal forecast.',
+      category: 'financial',
+      storage_path: shared.storagePath,
+      file_name: 'Q3_Financial_Audit.txt',
+      file_size: shared.size,
+      mime_type: 'text/plain',
+      checksum: shared.checksum,
+      current_version: 1,
+      is_deleted: false,
+      deleted_at: null,
+      deleted_by: null,
+      created_at: earlier,
+      updated_at: earlier,
+    },
+    {
+      id: DEMO_IDS.docPrivate,
+      owner_id: DEMO_IDS.owner,
+      title: 'Security & Zero-Trust Architecture',
+      description: 'Technical specification for the zero-trust boundary.',
+      category: 'technical',
+      storage_path: priv.storagePath,
+      file_name: 'Zero_Trust_Architecture.txt',
+      file_size: priv.size,
+      mime_type: 'text/plain',
+      checksum: priv.checksum,
+      current_version: 1,
+      is_deleted: false,
+      deleted_at: null,
+      deleted_by: null,
+      created_at: earlier2,
+      updated_at: earlier2,
+    },
+  ];
+
+  const permissions: DocumentPermission[] = [
+    {
+      id: DEMO_IDS.grantViewer,
+      document_id: DEMO_IDS.docShared,
+      user_id: DEMO_IDS.viewer,
+      permission_level: 'read',
+      granted_by: DEMO_IDS.owner,
+      granted_at: earlier,
+      revoked_at: null,
+      revoked_by: null,
+      expires_at: null,
+    },
+  ];
+
+  const versions: DocumentVersion[] = documents.map((d) => ({
+    id: `ver-${d.id}-1`,
+    document_id: d.id,
+    version_number: 1,
+    storage_path: d.storage_path,
+    file_name: d.file_name,
+    file_size: d.file_size,
+    mime_type: d.mime_type,
+    checksum: d.checksum,
+    uploaded_by: DEMO_IDS.owner,
+    change_notes: 'Initial upload',
+    created_at: d.created_at,
+  }));
+
+  const store: LocalStore = {
+    users,
+    documents,
+    permissions,
+    versions,
+    audit: [],
+  };
+
+  const seedEvents: Array<Omit<AuditEvent, 'id' | 'event_hash' | 'prev_hash' | 'ip_hash' | 'user_agent_hash' | 'request_id'>> = [
+    {
+      occurred_at: earlier2,
+      actor_id: DEMO_IDS.owner,
+      actor_email: 'owner@example.com',
+      document_id: DEMO_IDS.docPrivate,
+      action: 'upload',
+      result: 'allowed',
+      details_jsonb: { file_name: priv.storagePath },
+    },
+    {
+      occurred_at: earlier,
+      actor_id: DEMO_IDS.owner,
+      actor_email: 'owner@example.com',
+      document_id: DEMO_IDS.docShared,
+      action: 'upload',
+      result: 'allowed',
+      details_jsonb: { file_name: shared.storagePath },
+    },
+    {
+      occurred_at: new Date(Date.now() - 3000_000).toISOString(),
+      actor_id: DEMO_IDS.owner,
+      actor_email: 'owner@example.com',
+      document_id: DEMO_IDS.docShared,
+      action: 'permission_grant',
+      result: 'allowed',
+      details_jsonb: { target_user_email: 'viewer@example.com', permission_level: 'read' },
+    },
+  ];
+
+  let prev: string | null = null;
+  for (const event of seedEvents) {
+    const detailsJson = JSON.stringify(event.details_jsonb);
+    const event_hash = computeEventHash(
+      event.occurred_at,
+      event.actor_id,
+      event.document_id,
+      event.action,
+      event.result,
+      detailsJson,
+      prev
+    );
+    store.audit.push({
+      id: randomUUID(),
+      occurred_at: event.occurred_at,
+      actor_id: event.actor_id,
+      actor_email: event.actor_email,
+      document_id: event.document_id,
+      action: event.action,
+      result: event.result,
+      ip_hash: null,
+      user_agent_hash: null,
+      request_id: randomUUID(),
+      details_jsonb: event.details_jsonb,
+      prev_hash: prev,
+      event_hash,
+    });
+    prev = event_hash;
+  }
+
+  return store;
+}
+
+function readStore(): LocalStore {
+  ensureDirs();
+  if (!fs.existsSync(STORE_PATH)) {
+    const seeded = seedStore();
+    fs.writeFileSync(STORE_PATH, JSON.stringify(seeded, null, 2));
+    return seeded;
+  }
+  return JSON.parse(fs.readFileSync(STORE_PATH, 'utf8')) as LocalStore;
+}
+
+function writeStore(store: LocalStore) {
+  ensureDirs();
+  fs.writeFileSync(STORE_PATH, JSON.stringify(store, null, 2));
+}
+
+export function getStore(): LocalStore {
+  return readStore();
+}
+
+export function mutateStore<T>(mutator: (store: LocalStore) => T): Promise<T> {
+  return withLock(() => {
+    const store = readStore();
+    const result = mutator(store);
+    writeStore(store);
+    return result;
+  });
+}
+
+export function withUser(doc: Document, store: LocalStore = readStore()): Document {
+  const owner = store.users.find((u) => u.id === doc.owner_id);
+  return { ...doc, owner };
+}
+
+export function withPermissionUsers(
+  perm: DocumentPermission,
+  store: LocalStore = readStore()
+): DocumentPermission {
+  return {
+    ...perm,
+    user: store.users.find((u) => u.id === perm.user_id),
+    grantor: store.users.find((u) => u.id === perm.granted_by),
+  };
+}
+
+export function findUserByEmail(email: string): User | undefined {
+  return readStore().users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+}
+
+export function findUserById(id: string): User | undefined {
+  return readStore().users.find((u) => u.id === id);
+}
+
+export function getDocument(id: string): Document | undefined {
+  return readStore().documents.find((d) => d.id === id);
+}
+
+export function getPermissionsForDocument(documentId: string): DocumentPermission[] {
+  return readStore().permissions.filter((p) => p.document_id === documentId);
+}
+
+export function putFile(storagePath: string, bytes: Buffer) {
+  const full = path.join(FILES_DIR, storagePath);
+  fs.mkdirSync(path.dirname(full), { recursive: true });
+  fs.writeFileSync(full, bytes);
+}
+
+export function readFileBytes(storagePath: string): Buffer | null {
+  const full = path.join(FILES_DIR, storagePath);
+  if (!fs.existsSync(full)) return null;
+  return fs.readFileSync(full);
+}
+
+export function appendAudit(event: Omit<AuditEvent, 'id' | 'event_hash' | 'prev_hash'> & { prev_hash?: string | null; event_hash?: string }): AuditEvent {
+  let created!: AuditEvent;
+  const store = readStore();
+  const last = store.audit[store.audit.length - 1];
+  const prevHash = last?.event_hash ?? null;
+  const detailsJson = JSON.stringify(event.details_jsonb || {});
+  const eventHash =
+    event.event_hash ||
+    computeEventHash(
+      event.occurred_at,
+      event.actor_id,
+      event.document_id,
+      event.action,
+      event.result,
+      detailsJson,
+      prevHash
+    );
+  created = {
+    ...event,
+    id: randomUUID(),
+    prev_hash: prevHash,
+    event_hash: eventHash,
+  };
+  store.audit.push(created);
+  writeStore(store);
+  return created;
+}
+
+export { computeEventHash, sha256 };

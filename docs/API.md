@@ -23,6 +23,7 @@ Every endpoint in TrustVault strictly enforces the **default-deny** security pri
 | `DELETE` | `/api/documents/:id/permissions/:permissionId` | Authenticated | Owner Only | `permission_revoke` (allowed/denied) |
 | `GET` | `/api/documents/:id/audit` | Authenticated | Owner or `admin` | None |
 | `GET` | `/api/admin/audit` | `admin` | None | None |
+| `POST` | `/api/admin/audit/verify` | `admin` | None | `admin_action` (allowed/denied) |
 | `GET` | `/api/admin/users` | `admin` | None | None |
 
 ---
@@ -275,3 +276,4 @@ Every endpoint in TrustVault strictly enforces the **default-deny** security pri
   - `403 Forbidden`: `{"success": false, "error": "Insufficient role. Required: admin"}`
   - `500 Internal Server Error`: Query error.
 - **Audit Events Emitted:** None.
+

@@ -13,8 +13,8 @@
 ### [0:00 – 0:45] Scene 1: Introduction & Security Architecture Overview
 
 **Visual:**
-- Screen opens on the TrustVault Landing Page (`/login`) showcasing the dark-mode security-first aesthetic.
-- Terminal window open side-by-side displaying `npm test` passing 33 automated security tests.
+- Screen opens on the TrustVault Landing Page (`/login`) showcasing the clean, accessible light-theme enterprise security aesthetic (warm sand `#FBF9F5`, coffee brown `#724B39`, and Chinese black `#0C1519`).
+- Terminal window open side-by-side displaying `npm test` passing 54 automated security tests.
 
 **Audio / Voiceover:**
 > "Welcome to TrustVault, an enterprise-grade document sharing platform built with Next.js 15 App Router, TypeScript, Tailwind CSS, and Supabase PostgreSQL with Row Level Security.
@@ -117,3 +117,4 @@
 > The table is strictly append-only. Application roles have UPDATE and DELETE revoked, and PostgreSQL database triggers immediately raise an exception if anyone attempts to modify or truncate historical records. If an attacker attempts to alter any byte in an audit record, the cryptographic hash chain breaks and tampering is instantly exposed.
 > 
 > That is TrustVault — defense in depth, zero-trust authorization, and verifiable integrity. Thank you."
+

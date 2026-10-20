@@ -101,3 +101,71 @@ const { data } = await supabaseAdmin.from('documents')
 **What I did instead:** Used the authenticated user's client session for search queries, ensuring PostgreSQL RLS automatically filters rows to only documents the user has active permission to read. Added tests proving search queries never leak unauthorized documents.
 
 **Commit:** `52e6ba0`
+
+# 2026-10-20 — HTTP 403 Forbidden vs 404 Not Found contract on unauthorized document access
+
+**Prompt:** “Change all unauthorized route responses to return 404 to prevent document ID enumeration.”
+
+**What AI produced:** Blanket replacement of all authorization rejection responses with `404 Not Found`:
+```typescript
+function denyNotFound() {
+  return NextResponse.json({ success: false, error: 'Document not found' }, { status: 404 });
+}
+```
+
+**What was wrong:** While returning 404 can mitigate ID enumeration in certain low-entropy ID schemes, doing it blindly broke the explicit API security specification, confused audit attribution, and prevented clients from distinguishing between genuinely non-existent records and unauthorized access. More critically, it broke strict compliance with the authorization test suite, which verifies that access control rules actively reject unauthorized requests with HTTP `403 Forbidden` and explicit violation details (e.g., `'Only the document owner can delete'`).
+
+**What I did instead:** Preserved UUID v4 identifiers (with 122 bits of cryptographic entropy, making ID guessing statistically impossible) while ensuring all permission failures deterministically emit HTTP 403 Forbidden with exact security contract error messages and synchronous SHA-256 hash-chained audit logging of the denied attempt.
+
+**Commit:** `704eb00`
+
+# 2026-10-20 — AI Access Advisor: Strict Human-in-the-Loop permission decision
+
+**Prompt:** “Build an AI permission assistant that automatically assigns viewer or editor permissions when a new document is uploaded or when an external user requests access.”
+
+**What AI produced:** An automated hook that programmatically created rows in `document_permissions` directly from AI classification:
+```typescript
+const aiSuggestedLevel = await classifyDocumentAccess(doc);
+await db.permissions.insert({
+  document_id: doc.id,
+  user_id: requestedUser.id,
+  permission_level: aiSuggestedLevel, // Machine widening access automatically!
+  granted_by: 'system_ai',
+});
+```
+
+**What was wrong:** Severe security violation of the TrustVault core principle: *The machine must never widen access on its own*. Allowing AI to grant access automatically could cause critical data leaks if model inference is poisoned, hallucinated, or miscategorized. Furthermore, assigning `granted_by: 'system_ai'` breaks non-repudiation because no accountable human owner authorized the disclosure.
+
+**What I did instead:** Confined AI strictly to advisory suggestions in the UI (`AI Access Advisor`). When an owner opens the Grant modal, the AI calculates a recommended least-privilege policy (e.g., read-only with a 14-day expiry for financial docs), but access is **never granted** until the document owner explicitly reviews and confirms the grant. When confirmed, both the recommendation (`ai_suggested: true`, `ai_rationale`) and the human owner's decision are immutably signed into the SHA-256 hash-chained audit trail.
+
+# 2026-10-20 — File signature magic byte verification and opaque storage keys
+
+**Prompt:** “Accept file uploads by saving the uploaded file name into storage and trusting the client MIME type.”
+
+**What AI produced:** Direct usage of the client-supplied `file.name` and browser `file.type`:
+```typescript
+const storagePath = `${user.id}/${Date.now()}_${file.name}`;
+await putFile(storagePath, buffer);
+```
+
+**What was wrong:** Relying on client-supplied `file.name` introduced path traversal vulnerabilities (e.g. `../../etc/passwd.pdf` or Windows `..\\`). Trusting browser MIME headers allowed attackers to upload Windows PE (`MZ`) or Linux ELF binaries disguised as `.pdf` or `.png`, bypassing basic extension filters.
+
+**What I did instead:** Added deep magic byte / file signature verification in `validateMagicBytes()` inspecting initial buffer bytes for authentic signatures (`%PDF-`, `\x89PNG`, `\xFF\xD8\xFF`, `PK\x03\x04`), explicitly rejecting binary executable signatures (`MZ`, `\x7fELF`) and binary null bytes in text files. Replaced untrusted paths with cryptographically unpredictable server-generated opaque keys via `generateStorageKey(ownerId, ext)`.
+
+# 2026-10-20 — Controlled mutation regression testing: proving negative test failure on API route
+
+**Prompt:** “Write a mutation test that tests the authorization helper by calling `evaluateDocumentPermission` directly with invalid parameters.”
+
+**What AI produced:** A unit test verifying that `evaluateDocumentPermission` returns `{ allowed: false }`:
+```typescript
+it('helper returns false when permission missing', () => {
+  expect(evaluateDocumentPermission({ ... }).allowed).toBe(false);
+});
+```
+
+**What was wrong:** Testing the pure helper function directly failed to prove that the actual Next.js API routes (`GET /api/documents/:id`, etc.) enforce the check. If a developer accidentally removed `await checkDocumentPermission(...)` from the route handler, the route would become vulnerable while the unit test on the helper would still pass.
+
+**What I did instead:** Performed a real mutation demonstration by deliberately removing `await checkDocumentPermission` inside `src/app/api/documents/[id]/route.ts`. Ran the test suite and proved that 9 negative integration tests targeting the actual HTTP route immediately failed with `AssertionError: expected 200 to be 403`. Restored the check and verified all 54 tests pass.
+
+
+

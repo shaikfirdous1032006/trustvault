@@ -144,8 +144,8 @@ export function Sidebar({ user }: SidebarProps) {
                   transition-all duration-150
                   ${
                     isActive
-                      ? "bg-brand-600/15 text-brand-400 border border-brand-600/20"
-                      : "text-[var(--muted)] hover:bg-[var(--input-bg)] hover:text-[var(--foreground)] border border-transparent"
+                      ? "bg-brand-700/10 text-brand-700 border border-brand-700/25 font-semibold"
+                      : "text-[var(--muted)] hover:bg-[#EAE2D5] hover:text-[var(--foreground)] border border-transparent"
                   }
                 `}
                 title={collapsed ? item.label : undefined}

@@ -1,0 +1,170 @@
+// TrustVault - Secure Document Sharing & Verifiable Audit Trail
+// Prisma Schema Definition for PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  admin
+  owner
+  viewer
+}
+
+enum PermissionLevel {
+  read
+  edit
+}
+
+enum AuditResult {
+  allowed
+  denied
+}
+
+model User {
+  id            String            @id @default(uuid())
+  email         String            @unique
+  passwordHash  String?           @map("password_hash")
+  fullName      String?           @map("full_name")
+  role          UserRole          @default(viewer)
+  isActive      Boolean           @default(true) @map("is_active")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+
+  // Relations
+  sessions      Session[]
+  ownedDocs     Document[]        @relation("DocumentOwner")
+  grants        DocumentGrant[]   @relation("GrantedToUser")
+  grantsGiven   DocumentGrant[]   @relation("GrantedByUser")
+  grantsRevoked DocumentGrant[]   @relation("RevokedByUser")
+  versions      DocumentVersion[] @relation("VersionUploader")
+  auditEvents   AuditEvent[]      @relation("ActorAuditEvents")
+
+  @@map("users")
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  tokenHash    String   @unique @map("token_hash")
+  ipAddress    String?  @map("ip_address")
+  userAgent    String?  @map("user_agent")
+  expiresAt    DateTime @map("expires_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model Document {
+  id             String            @id @default(uuid())
+  ownerId        String            @map("owner_id")
+  title          String            @db.VarChar(255)
+  description    String?           @db.VarChar(1000)
+  category       String            @default("general") @db.VarChar(50)
+  storagePath    String            @map("storage_path") @db.VarChar(512)
+  fileName       String            @map("file_name") @db.VarChar(255)
+  fileSize       BigInt            @map("file_size")
+  mimeType       String            @map("mime_type") @db.VarChar(128)
+  checksum       String            @db.VarChar(64)
+  currentVersion Int               @default(1) @map("current_version")
+  isDeleted      Boolean           @default(false) @map("is_deleted")
+  deletedAt      DateTime?         @map("deleted_at")
+  deletedBy      String?           @map("deleted_by")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  // Relations
+  owner          User              @relation("DocumentOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  grants         DocumentGrant[]
+  versions       DocumentVersion[]
+  auditEvents    AuditEvent[]
+
+  @@index([ownerId])
+  @@index([isDeleted])
+  @@index([category])
+  @@index([createdAt])
+  @@map("documents")
+}
+
+model DocumentGrant {
+  id              String          @id @default(uuid())
+  documentId      String          @map("document_id")
+  userId          String          @map("user_id")
+  permissionLevel PermissionLevel @default(read) @map("permission_level")
+  grantedBy       String          @map("granted_by")
+  grantedAt       DateTime        @default(now()) @map("granted_at")
+  revokedAt       DateTime?       @map("revoked_at")
+  revokedBy       String?         @map("revoked_by")
+  expiresAt       DateTime?       @map("expires_at")
+
+  // Relations
+  document        Document        @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  user            User            @relation("GrantedToUser", fields: [userId], references: [id], onDelete: Cascade)
+  grantor         User            @relation("GrantedByUser", fields: [grantedBy], references: [id], onDelete: Restrict)
+  revoker         User?           @relation("RevokedByUser", fields: [revokedBy], references: [id], onDelete: SetNull)
+
+  @@index([documentId])
+  @@index([userId])
+  @@index([revokedAt])
+  @@index([expiresAt])
+  @@map("document_permissions")
+}
+
+model DocumentVersion {
+  id            String   @id @default(uuid())
+  documentId    String   @map("document_id")
+  versionNumber Int      @map("version_number")
+  storagePath   String   @map("storage_path") @db.VarChar(512)
+  fileName      String   @map("file_name") @db.VarChar(255)
+  fileSize      BigInt   @map("file_size")
+  mimeType      String   @map("mime_type") @db.VarChar(128)
+  checksum      String   @db.VarChar(64)
+  uploadedBy    String   @map("uploaded_by")
+  changeNotes   String?  @map("change_notes") @db.VarChar(500)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  // Relations
+  document      Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  uploader      User     @relation("VersionUploader", fields: [uploadedBy], references: [id], onDelete: Restrict)
+
+  @@unique([documentId, versionNumber])
+  @@index([documentId])
+  @@map("document_versions")
+}
+
+model AuditEvent {
+  id            String      @id @default(uuid())
+  occurredAt    DateTime    @default(now()) @map("occurred_at")
+  actorId       String?     @map("actor_id")
+  actorEmail    String?     @map("actor_email") @db.VarChar(255)
+  documentId    String?     @map("document_id")
+  action        String      @db.VarChar(50)
+  result        AuditResult
+  ipHash        String?     @map("ip_hash") @db.VarChar(64)
+  userAgentHash String?     @map("user_agent_hash") @db.VarChar(64)
+  requestId     String?     @map("request_id") @db.VarChar(64)
+  detailsJsonb  Json        @default("{}") @map("details_jsonb")
+  prevHash      String?     @map("prev_hash") @db.VarChar(64)
+  eventHash     String      @map("event_hash") @db.VarChar(64)
+
+  // Relations
+  actor         User?       @relation("ActorAuditEvents", fields: [actorId], references: [id], onDelete: SetNull)
+  document      Document?   @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@index([occurredAt])
+  @@index([actorId])
+  @@index([documentId])
+  @@index([action])
+  @@index([result])
+  @@index([eventHash])
+  @@map("audit_events")
+}

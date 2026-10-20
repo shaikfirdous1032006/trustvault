@@ -70,7 +70,7 @@ export default function LoginPage() {
           <div
             className="absolute inset-0"
             style={{
-              backgroundImage: `radial-gradient(circle at 1px 1px, rgba(99,102,241,0.3) 1px, transparent 0)`,
+              backgroundImage: `radial-gradient(circle at 1px 1px, rgba(194,155,110,0.3) 1px, transparent 0)`,
               backgroundSize: "40px 40px",
             }}
           />

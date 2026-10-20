@@ -157,6 +157,7 @@ vi.mock('@/lib/auth', () => ({
 }));
 
 vi.mock('@/lib/supabase/server', () => ({
+  isSupabaseConfigured: vi.fn(() => false),
   createClient: vi.fn(async () => ({
     from: (table: string) => ({
       select: () => ({
@@ -656,3 +657,4 @@ describe('TrustVault Security Enforcement Tests', () => {
     });
   });
 });
+

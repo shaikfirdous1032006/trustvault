@@ -1,9 +1,21 @@
-import { createClient } from '@/lib/supabase/server';
+import { createClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import { requireAuth, getRequestMeta } from '@/lib/auth';
 import { logAuditEvent } from '@/lib/audit';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
+import {
+  evaluateDocumentPermission,
+  validateUpload,
+  sanitizeFilename,
+  generateStorageKey,
+} from '@/lib/permission';
+import {
+  getStore,
+  mutateStore,
+  putFile,
+  withUser,
+} from '@/lib/local-db';
 
 const uploadSchema = z.object({
   title: z.string().min(1).max(255),
@@ -11,24 +23,94 @@ const uploadSchema = z.object({
   category: z.string().min(1).max(50),
 });
 
-/**
- * GET /api/documents
- * Returns documents the authenticated user can see.
- * RLS ensures only permitted documents are returned.
- * Supports: ?search=, ?category=, ?page=, ?pageSize=
- */
+function visibleLocalDocuments(userId: string) {
+  const store = getStore();
+  return store.documents
+    .filter((doc) => {
+      const decision = evaluateDocumentPermission({
+        document: doc,
+        grants: store.permissions.filter((p) => p.document_id === doc.id),
+        userId,
+        requiredLevel: 'read',
+      });
+      return decision.allowed;
+    })
+    .map((doc) => withUser(doc, store));
+}
+
 export async function GET(request: NextRequest) {
   const { ipAddress, userAgent } = await getRequestMeta();
 
   try {
     const user = await requireAuth();
-    const supabase = await createClient();
-
     const searchParams = request.nextUrl.searchParams;
     const search = searchParams.get('search');
     const category = searchParams.get('category');
+    const owner = searchParams.get('owner');
+    const dateFrom = searchParams.get('dateFrom');
+    const dateTo = searchParams.get('dateTo');
     const page = parseInt(searchParams.get('page') || '1');
     const pageSize = Math.min(parseInt(searchParams.get('pageSize') || '20'), 100);
+
+    if (!isSupabaseConfigured()) {
+      let docs = visibleLocalDocuments(user.id);
+
+      if (search) {
+        const q = search.toLowerCase();
+        docs = docs.filter(
+          (d) =>
+            d.title.toLowerCase().includes(q) ||
+            (d.description || '').toLowerCase().includes(q) ||
+            d.file_name.toLowerCase().includes(q) ||
+            (d.owner?.email || '').toLowerCase().includes(q) ||
+            (d.owner?.full_name || '').toLowerCase().includes(q)
+        );
+      }
+      if (category && category !== 'all') {
+        docs = docs.filter((d) => d.category === category);
+      }
+      if (owner) {
+        const q = owner.toLowerCase();
+        docs = docs.filter(
+          (d) =>
+            (d.owner?.email || '').toLowerCase().includes(q) ||
+            (d.owner?.full_name || '').toLowerCase().includes(q)
+        );
+      }
+      if (dateFrom) {
+        docs = docs.filter((d) => d.created_at >= dateFrom);
+      }
+      if (dateTo) {
+        docs = docs.filter((d) => d.created_at <= `${dateTo}T23:59:59.999Z`);
+      }
+
+      docs.sort((a, b) => b.created_at.localeCompare(a.created_at));
+      const total = docs.length;
+      const offset = (page - 1) * pageSize;
+      const pageDocs = docs.slice(offset, offset + pageSize);
+
+      if (search) {
+        await logAuditEvent({
+          actorId: user.id,
+          actorEmail: user.email,
+          action: 'search',
+          result: 'allowed',
+          ipAddress,
+          userAgent,
+          details: { search_term: search, results_count: pageDocs.length },
+        });
+      }
+
+      return NextResponse.json({
+        success: true,
+        data: pageDocs,
+        total,
+        page,
+        pageSize,
+      });
+    }
+
+    const supabase = await createClient();
     const offset = (page - 1) * pageSize;
 
     let query = supabase
@@ -39,11 +121,19 @@ export async function GET(request: NextRequest) {
       .range(offset, offset + pageSize - 1);
 
     if (search) {
-      query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`);
+      query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%,file_name.ilike.%${search}%`);
     }
 
     if (category && category !== 'all') {
       query = query.eq('category', category);
+    }
+
+    if (dateFrom) {
+      query = query.gte('created_at', dateFrom);
+    }
+
+    if (dateTo) {
+      query = query.lte('created_at', `${dateTo}T23:59:59.999Z`);
     }
 
     const { data, count, error } = await query;
@@ -55,7 +145,16 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Log search if search term was used
+    let rows = data || [];
+    if (owner) {
+      const q = owner.toLowerCase();
+      rows = rows.filter((d: { owner?: { email?: string; full_name?: string | null } }) => {
+        const email = d.owner?.email || '';
+        const name = d.owner?.full_name || '';
+        return email.toLowerCase().includes(q) || name.toLowerCase().includes(q);
+      });
+    }
+
     if (search) {
       await logAuditEvent({
         actorId: user.id,
@@ -64,14 +163,14 @@ export async function GET(request: NextRequest) {
         result: 'allowed',
         ipAddress,
         userAgent,
-        details: { search_term: search, results_count: data?.length || 0 },
+        details: { search_term: search, results_count: rows.length },
       });
     }
 
     return NextResponse.json({
       success: true,
-      data: data || [],
-      total: count || 0,
+      data: rows,
+      total: owner ? rows.length : count || 0,
       page,
       pageSize,
     });
@@ -90,18 +189,12 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/**
- * POST /api/documents
- * Upload a new document. Only owners and admins can upload.
- * Validates file type, computes checksum, stores in private bucket.
- */
 export async function POST(request: NextRequest) {
   const { ipAddress, userAgent } = await getRequestMeta();
 
   try {
     const user = await requireAuth();
 
-    // Only owner and admin roles can upload
     if (user.role !== 'owner' && user.role !== 'admin') {
       await logAuditEvent({
         actorId: user.id,
@@ -125,7 +218,6 @@ export async function POST(request: NextRequest) {
     const description = formData.get('description') as string | null;
     const category = formData.get('category') as string;
 
-    // Validate metadata
     const metaParsed = uploadSchema.safeParse({ title, description, category });
     if (!metaParsed.success) {
       return NextResponse.json(
@@ -141,41 +233,99 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate file size (50MB max)
-    if (file.size > 52428800) {
-      return NextResponse.json(
-        { success: false, error: 'File size exceeds 50MB limit' },
-        { status: 400 }
-      );
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    const uploadError = validateUpload({
+      type: file.type,
+      size: file.size,
+      name: file.name,
+      buffer,
+    });
+    if (uploadError) {
+      return NextResponse.json({ success: false, error: uploadError }, { status: 400 });
     }
 
-    // Compute file checksum
-    const arrayBuffer = await file.arrayBuffer();
-    const checksum = createHash('sha256')
-      .update(Buffer.from(arrayBuffer))
-      .digest('hex');
+    const { safeName } = sanitizeFilename(file.name);
+    const ext = file.name.includes('.') ? file.name.split('.').pop() : '';
+    const storagePath = generateStorageKey(user.id, ext);
+    const checksum = createHash('sha256').update(buffer).digest('hex');
 
-    // Upload to private storage bucket
-    // Path: {user_id}/{timestamp}_{filename}
-    const storagePath = `${user.id}/${Date.now()}_${file.name}`;
+    if (!isSupabaseConfigured()) {
+      putFile(storagePath, buffer);
+      const now = new Date().toISOString();
+      const doc = await mutateStore((store) => {
+        const created = {
+          id: randomUUID(),
+          owner_id: user.id,
+          title: metaParsed.data.title,
+          description: metaParsed.data.description || null,
+          category: metaParsed.data.category,
+          storage_path: storagePath,
+          file_name: safeName,
+          file_size: file.size,
+          mime_type: file.type,
+          checksum,
+          current_version: 1,
+          is_deleted: false,
+          deleted_at: null,
+          deleted_by: null,
+          created_at: now,
+          updated_at: now,
+        };
+        store.documents.push(created);
+        store.versions.push({
+          id: randomUUID(),
+          document_id: created.id,
+          version_number: 1,
+          storage_path: storagePath,
+          file_name: safeName,
+          file_size: file.size,
+          mime_type: file.type,
+          checksum,
+          uploaded_by: user.id,
+          change_notes: 'Initial upload',
+          created_at: now,
+        });
+        return created;
+      });
+
+      await logAuditEvent({
+        actorId: user.id,
+        actorEmail: user.email,
+        documentId: doc.id,
+        action: 'upload',
+        result: 'allowed',
+        ipAddress,
+        userAgent,
+        details: {
+          file_name: safeName,
+          file_size: file.size,
+          mime_type: file.type,
+          checksum,
+        },
+      });
+
+      return NextResponse.json({ success: true, data: doc }, { status: 201 });
+    }
+
     const supabase = await createClient();
 
-    const { error: uploadError } = await supabase.storage
+    const { error: storageError } = await supabase.storage
       .from('documents')
       .upload(storagePath, arrayBuffer, {
         contentType: file.type,
         upsert: false,
       });
 
-    if (uploadError) {
-      console.error('[UPLOAD] Storage error:', uploadError);
+    if (storageError) {
+      console.error('[UPLOAD] Storage error:', storageError);
       return NextResponse.json(
         { success: false, error: 'Failed to upload file' },
         { status: 500 }
       );
     }
 
-    // Create document record
     const { data: doc, error: dbError } = await supabase
       .from('documents')
       .insert({
@@ -184,7 +334,7 @@ export async function POST(request: NextRequest) {
         description: metaParsed.data.description || null,
         category: metaParsed.data.category,
         storage_path: storagePath,
-        file_name: file.name,
+        file_name: safeName,
         file_size: file.size,
         mime_type: file.type,
         checksum,
@@ -194,7 +344,6 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (dbError || !doc) {
-      // Rollback: delete uploaded file
       await supabase.storage.from('documents').remove([storagePath]);
       return NextResponse.json(
         { success: false, error: 'Failed to create document record' },
@@ -202,7 +351,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create initial version record
     await supabase.from('document_versions').insert({
       document_id: doc.id,
       version_number: 1,
@@ -215,7 +363,6 @@ export async function POST(request: NextRequest) {
       change_notes: 'Initial upload',
     });
 
-    // Audit log
     await logAuditEvent({
       actorId: user.id,
       actorEmail: user.email,

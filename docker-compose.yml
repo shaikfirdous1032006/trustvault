@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database for persistent metadata and audit events
+  postgres:
+    image: postgres:16-alpine
+    container_name: trustvault-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: trustvault
+      POSTGRES_USER: trustvault_user
+      POSTGRES_PASSWORD: trustvault_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./supabase/migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/001_initial_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trustvault_user -d trustvault"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # MinIO - Private S3-Compatible Object Storage
+  minio:
+    image: minio/minio:RELEASE.2024-05-10T01-41-38Z
+    container_name: trustvault-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: trustvault_minio_admin
+      MINIO_ROOT_PASSWORD: trustvault_minio_dev_secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Provision private bucket for TrustVault documents
+  createbuckets:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set local http://minio:9000 trustvault_minio_admin trustvault_minio_dev_secret;
+      /usr/bin/mc mb --ignore-existing local/trustvault-documents;
+      /usr/bin/mc anonymous set none local/trustvault-documents;
+      exit 0;
+      "
+
+volumes:
+  pgdata:
+  miniodata:

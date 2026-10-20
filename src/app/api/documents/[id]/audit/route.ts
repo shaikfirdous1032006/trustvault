@@ -1,15 +1,10 @@
-import { createClient } from '@/lib/supabase/server';
-import { requireAuth, isDocumentOwner, getRequestMeta, AuthorizationError } from '@/lib/auth';
+import { createClient, isSupabaseConfigured } from '@/lib/supabase/server';
+import { requireAuth, isDocumentOwner, AuthorizationError } from '@/lib/auth';
 import { NextRequest, NextResponse } from 'next/server';
+import { getStore } from '@/lib/local-db';
 
 type RouteParams = { params: Promise<{ id: string }> };
 
-/**
- * GET /api/documents/:id/audit
- * Get audit trail for a specific document.
- * Document owner can see full audit trail for their documents.
- * Admin can see audit trail in metadata form.
- */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   const { id } = await params;
 
@@ -24,12 +19,25 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const supabase = await createClient();
     const searchParams = request.nextUrl.searchParams;
     const page = parseInt(searchParams.get('page') || '1');
     const pageSize = Math.min(parseInt(searchParams.get('pageSize') || '50'), 100);
     const offset = (page - 1) * pageSize;
 
+    if (!isSupabaseConfigured()) {
+      const events = getStore()
+        .audit.filter((e) => e.document_id === id)
+        .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at));
+      return NextResponse.json({
+        success: true,
+        data: events.slice(offset, offset + pageSize),
+        total: events.length,
+        page,
+        pageSize,
+      });
+    }
+
+    const supabase = await createClient();
     const { data: events, count, error } = await supabase
       .from('audit_events')
       .select('*', { count: 'exact' })
@@ -38,10 +46,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       .range(offset, offset + pageSize - 1);
 
     if (error) {
-      return NextResponse.json(
-        { success: false, error: 'Failed to fetch audit events' },
-        { status: 500 }
-      );
+      return NextResponse.json({ success: false, error: 'Failed to fetch audit events' }, { status: 500 });
     }
 
     return NextResponse.json({
@@ -53,14 +58,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     });
   } catch (err: unknown) {
     if (err instanceof AuthorizationError) {
-      return NextResponse.json(
-        { success: false, error: err.message },
-        { status: err.statusCode }
-      );
+      return NextResponse.json({ success: false, error: err.message }, { status: err.statusCode });
     }
-    return NextResponse.json(
-      { success: false, error: 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }
 }

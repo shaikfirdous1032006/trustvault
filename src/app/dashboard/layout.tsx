@@ -1,33 +1,17 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthenticatedUser } from "@/lib/auth";
 import { Sidebar } from "@/components/sidebar";
-import type { User } from "@/lib/types";
 
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-  const {
-    data: { user: authUser },
-  } = await supabase.auth.getUser();
+  const user = await getAuthenticatedUser();
 
-  if (!authUser) {
+  if (!user) {
     redirect("/login");
   }
-
-  const { data: profile } = await supabase
-    .from("users")
-    .select("*")
-    .eq("id", authUser.id)
-    .single();
-
-  if (!profile) {
-    redirect("/login");
-  }
-
-  const user = profile as User;
 
   return (
     <div className="flex h-screen overflow-hidden">

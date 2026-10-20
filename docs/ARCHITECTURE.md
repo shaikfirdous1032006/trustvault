@@ -117,3 +117,4 @@ To maximize security and eliminate attack vectors, the following architectural s
    - Hiding buttons in the frontend is treated purely as UX, never as security. Every API route independently verifies permissions.
 5. **No AI Autonomous Permission Widening:**
    - AI permission suggestions are advisory only and require explicit manual confirmation by the document owner. Suggestions and grants are audited as distinct events.
+

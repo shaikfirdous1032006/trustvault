@@ -1,7 +1,8 @@
-import { createAdminClient } from '@/lib/supabase/server';
+import { createAdminClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import type { AuditAction, AuditResult } from '@/lib/types';
 import { createHash } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
+import { appendAudit, getStore } from '@/lib/local-db';
 
 interface AuditLogParams {
   actorId: string | null;
@@ -60,13 +61,28 @@ function computeEventHash(
  * Uses the admin client to bypass RLS for insert (service role).
  */
 export async function logAuditEvent(params: AuditLogParams): Promise<void> {
-  const supabaseAdmin = createAdminClient();
   const requestId = params.requestId || uuidv4();
   const occurredAt = new Date().toISOString();
   const detailsJson = JSON.stringify(params.details || {});
 
   try {
-    // Get the previous event hash for chain continuity
+    if (!isSupabaseConfigured()) {
+      appendAudit({
+        occurred_at: occurredAt,
+        actor_id: params.actorId,
+        actor_email: params.actorEmail,
+        document_id: params.documentId ?? null,
+        action: params.action,
+        result: params.result,
+        ip_hash: hashPii(params.ipAddress),
+        user_agent_hash: hashPii(params.userAgent),
+        request_id: requestId,
+        details_jsonb: params.details || {},
+      });
+      return;
+    }
+
+    const supabaseAdmin = createAdminClient();
     const { data: lastEvent } = await supabaseAdmin
       .from('audit_events')
       .select('event_hash')
@@ -102,7 +118,6 @@ export async function logAuditEvent(params: AuditLogParams): Promise<void> {
     });
 
     if (error) {
-      // Log to server console but don't fail the request
       console.error('[AUDIT] Failed to log audit event:', error.message);
     }
   } catch (err) {
@@ -118,6 +133,11 @@ export async function verifyAuditChain(): Promise<{
   valid: boolean;
   mismatches: Array<{ id: string; expected: string; actual: string }>;
 }> {
+  if (!isSupabaseConfigured()) {
+    const events = getStore().audit.slice().sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
+    return verifyEvents(events);
+  }
+
   const supabaseAdmin = createAdminClient();
 
   const { data: events, error } = await supabaseAdmin
@@ -128,6 +148,24 @@ export async function verifyAuditChain(): Promise<{
   if (error || !events) {
     return { valid: false, mismatches: [{ id: 'query_error', expected: '', actual: error?.message || 'Unknown error' }] };
   }
+
+  return verifyEvents(events);
+}
+
+function verifyEvents(events: Array<{
+  id: string;
+  occurred_at: string;
+  actor_id: string | null;
+  document_id: string | null;
+  action: string;
+  result: string;
+  details_jsonb: Record<string, unknown>;
+  event_hash: string;
+  prev_hash: string | null;
+}>): {
+  valid: boolean;
+  mismatches: Array<{ id: string; expected: string; actual: string }>;
+} {
 
   const mismatches: Array<{ id: string; expected: string; actual: string }> = [];
   let prevHash: string | null = null;

@@ -1,15 +1,11 @@
-import { createClient } from '@/lib/supabase/server';
+import { createClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import { requireAuth, isDocumentOwner, getRequestMeta, AuthorizationError } from '@/lib/auth';
 import { logAuditEvent } from '@/lib/audit';
 import { NextRequest, NextResponse } from 'next/server';
+import { mutateStore } from '@/lib/local-db';
 
 type RouteParams = { params: Promise<{ id: string; permissionId: string }> };
 
-/**
- * DELETE /api/documents/:id/permissions/:permissionId
- * Revoke a permission. Owner only.
- * Sets revoked_at = now() for immediate effect.
- */
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   const { id, permissionId } = await params;
   const { ipAddress, userAgent } = await getRequestMeta();
@@ -29,16 +25,46 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         userAgent,
         details: { reason: 'Not document owner', permission_id: permissionId },
       });
-
       return NextResponse.json(
         { success: false, error: 'Only the document owner can revoke permissions' },
         { status: 403 }
       );
     }
 
-    const supabase = await createClient();
+    if (!isSupabaseConfigured()) {
+      const perm = await mutateStore((store) => {
+        const found = store.permissions.find((p) => p.id === permissionId && p.document_id === id);
+        if (!found) return null;
+        found.revoked_at = new Date().toISOString();
+        found.revoked_by = user.id;
+        return found;
+      });
 
-    // Fetch the permission to get target user info for audit
+      if (!perm) {
+        return NextResponse.json({ success: false, error: 'Permission not found' }, { status: 404 });
+      }
+
+      const target = (await import('@/lib/local-db')).findUserById(perm.user_id);
+
+      await logAuditEvent({
+        actorId: user.id,
+        actorEmail: user.email,
+        documentId: id,
+        action: 'permission_revoke',
+        result: 'allowed',
+        ipAddress,
+        userAgent,
+        details: {
+          permission_id: permissionId,
+          target_user_email: target?.email,
+          permission_level: perm.permission_level,
+        },
+      });
+
+      return NextResponse.json({ success: true, message: 'Permission revoked' });
+    }
+
+    const supabase = await createClient();
     const { data: perm } = await supabase
       .from('document_permissions')
       .select('*, user:users!document_permissions_user_id_fkey(id, email)')
@@ -47,13 +73,9 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       .single();
 
     if (!perm) {
-      return NextResponse.json(
-        { success: false, error: 'Permission not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ success: false, error: 'Permission not found' }, { status: 404 });
     }
 
-    // Set revoked_at for immediate revocation
     const { error } = await supabase
       .from('document_permissions')
       .update({
@@ -64,10 +86,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       .eq('document_id', id);
 
     if (error) {
-      return NextResponse.json(
-        { success: false, error: 'Failed to revoke permission' },
-        { status: 500 }
-      );
+      return NextResponse.json({ success: false, error: 'Failed to revoke permission' }, { status: 500 });
     }
 
     await logAuditEvent({
@@ -88,14 +107,8 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ success: true, message: 'Permission revoked' });
   } catch (err: unknown) {
     if (err instanceof AuthorizationError) {
-      return NextResponse.json(
-        { success: false, error: err.message },
-        { status: err.statusCode }
-      );
+      return NextResponse.json({ success: false, error: err.message }, { status: err.statusCode });
     }
-    return NextResponse.json(
-      { success: false, error: 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }
 }

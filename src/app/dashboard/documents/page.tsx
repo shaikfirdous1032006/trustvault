@@ -52,6 +52,9 @@ export default function DocumentsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
+  const [owner, setOwner] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const pageSize = 12;
@@ -62,6 +65,9 @@ export default function DocumentsPage() {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
       if (category !== "all") params.set("category", category);
+      if (owner) params.set("owner", owner);
+      if (dateFrom) params.set("dateFrom", dateFrom);
+      if (dateTo) params.set("dateTo", dateTo);
       params.set("page", page.toString());
       params.set("pageSize", pageSize.toString());
 
@@ -76,7 +82,7 @@ export default function DocumentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, category, page]);
+  }, [search, category, owner, dateFrom, dateTo, page]);
 
   useEffect(() => {
     fetchDocuments();
@@ -100,7 +106,7 @@ export default function DocumentsPage() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <FileText className="w-6 h-6 text-brand-400" />
+            <FileText className="w-6 h-6 text-brand-700" />
             Documents
           </h1>
           <p className="text-[var(--muted)] text-sm mt-1">
@@ -143,6 +149,37 @@ export default function DocumentsPage() {
             ))}
           </select>
         </div>
+        <input
+          type="text"
+          value={owner}
+          onChange={(e) => {
+            setOwner(e.target.value);
+            setPage(1);
+          }}
+          placeholder="Owner email or name"
+          className="input min-w-[180px]"
+          id="owner-filter-input"
+        />
+        <input
+          type="date"
+          value={dateFrom}
+          onChange={(e) => {
+            setDateFrom(e.target.value);
+            setPage(1);
+          }}
+          className="input"
+          id="date-from-filter"
+        />
+        <input
+          type="date"
+          value={dateTo}
+          onChange={(e) => {
+            setDateTo(e.target.value);
+            setPage(1);
+          }}
+          className="input"
+          id="date-to-filter"
+        />
       </div>
 
       {/* Documents Grid */}
@@ -172,11 +209,11 @@ export default function DocumentsPage() {
                 id={`document-card-${doc.id}`}
               >
                 <div className="flex items-start gap-3 mb-3">
-                  <div className="w-10 h-10 rounded-lg bg-brand-600/15 flex items-center justify-center flex-shrink-0 group-hover:bg-brand-600/25 transition-colors">
+                  <div className="w-10 h-10 rounded-lg bg-brand-700/10 flex items-center justify-center flex-shrink-0 group-hover:bg-brand-700/20 transition-colors">
                     <FileIcon mimeType={doc.mime_type} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-semibold truncate group-hover:text-brand-400 transition-colors">
+                    <h3 className="text-sm font-semibold truncate group-hover:text-brand-700 transition-colors">
                       {doc.title}
                     </h3>
                     <p className="text-xs text-[var(--muted)] truncate">
@@ -246,7 +283,7 @@ export default function DocumentsPage() {
         </>
       ) : (
         <div className="empty-state py-16">
-          {search || category !== "all" ? (
+          {search || category !== "all" || owner || dateFrom || dateTo ? (
             <>
               <Search className="w-12 h-12 text-[var(--muted)] opacity-30" />
               <p className="text-lg font-medium mt-3">No documents found</p>
@@ -258,6 +295,9 @@ export default function DocumentsPage() {
                   setSearchInput("");
                   setSearch("");
                   setCategory("all");
+                  setOwner("");
+                  setDateFrom("");
+                  setDateTo("");
                 }}
                 className="btn btn-secondary btn-sm mt-4"
               >
@@ -287,15 +327,15 @@ export default function DocumentsPage() {
 
 function FileIcon({ mimeType }: { mimeType: string }) {
   if (mimeType.startsWith("image/")) {
-    return <FileText className="w-5 h-5 text-brand-400" />;
+    return <FileText className="w-5 h-5 text-brand-700" />;
   }
   if (mimeType === "application/pdf") {
-    return <FileText className="w-5 h-5 text-red-400" />;
+    return <FileText className="w-5 h-5 text-danger" />;
   }
   if (mimeType.includes("spreadsheet") || mimeType.includes("excel")) {
-    return <FileText className="w-5 h-5 text-green-400" />;
+    return <FileText className="w-5 h-5 text-success" />;
   }
-  return <FileText className="w-5 h-5 text-brand-400" />;
+  return <FileText className="w-5 h-5 text-brand-700" />;
 }
 
 function formatFileSize(bytes: number): string {

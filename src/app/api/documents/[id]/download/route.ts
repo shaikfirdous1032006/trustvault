@@ -1,15 +1,15 @@
-import { createClient } from '@/lib/supabase/server';
+import { createAdminClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import { requireAuth, checkDocumentPermission, getRequestMeta, AuthorizationError } from '@/lib/auth';
 import { logAuditEvent } from '@/lib/audit';
 import { NextRequest, NextResponse } from 'next/server';
+import { getDocument, readFileBytes } from '@/lib/local-db';
 
 type RouteParams = { params: Promise<{ id: string }> };
 
 /**
  * GET /api/documents/:id/download
- * Generate a short-lived signed URL for document download.
- * Requires read permission. Fresh permission check on every request.
- * Never returns a permanent public URL.
+ * Streams the file after a fresh permission check.
+ * No durable URL is issued, so revocation is immediate.
  */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   const { id } = await params;
@@ -17,8 +17,6 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
   try {
     const user = await requireAuth();
-
-    // Fresh permission check — no caching
     const permission = await checkDocumentPermission(user.id, id, 'read');
 
     if (!permission.allowed) {
@@ -32,16 +30,44 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         userAgent,
         details: { reason: permission.reason },
       });
-
       return NextResponse.json(
         { success: false, error: 'Access denied' },
         { status: 403 }
       );
     }
 
-    // Fetch document to get storage path
-    const supabase = await createClient();
-    const { data: doc, error } = await supabase
+    if (!isSupabaseConfigured()) {
+      const doc = getDocument(id);
+      if (!doc || doc.is_deleted) {
+        return NextResponse.json({ success: false, error: 'Document not found' }, { status: 404 });
+      }
+      const bytes = readFileBytes(doc.storage_path);
+      if (!bytes) {
+        return NextResponse.json({ success: false, error: 'File missing' }, { status: 500 });
+      }
+
+      await logAuditEvent({
+        actorId: user.id,
+        actorEmail: user.email,
+        documentId: id,
+        action: 'download',
+        result: 'allowed',
+        ipAddress,
+        userAgent,
+        details: { file_name: doc.file_name },
+      });
+
+      return new NextResponse(new Uint8Array(bytes), {
+        headers: {
+          'Content-Type': doc.mime_type || 'application/octet-stream',
+          'Content-Disposition': `attachment; filename="${doc.file_name.replace(/"/g, '')}"`,
+          'Cache-Control': 'no-store',
+        },
+      });
+    }
+
+    const supabaseAdmin = createAdminClient();
+    const { data: doc, error } = await supabaseAdmin
       .from('documents')
       .select('storage_path, file_name, mime_type')
       .eq('id', id)
@@ -49,23 +75,15 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       .single();
 
     if (error || !doc) {
-      return NextResponse.json(
-        { success: false, error: 'Document not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ success: false, error: 'Document not found' }, { status: 404 });
     }
 
-    // Generate short-lived signed URL (5 minutes)
-    const { data: signedUrlData, error: signError } = await supabase.storage
+    const { data: file, error: downloadError } = await supabaseAdmin.storage
       .from('documents')
-      .createSignedUrl(doc.storage_path, 300); // 300 seconds = 5 minutes
+      .download(doc.storage_path);
 
-    if (signError || !signedUrlData) {
-      console.error('[DOWNLOAD] Signed URL error:', signError);
-      return NextResponse.json(
-        { success: false, error: 'Failed to generate download URL' },
-        { status: 500 }
-      );
+    if (downloadError || !file) {
+      return NextResponse.json({ success: false, error: 'Failed to fetch file' }, { status: 500 });
     }
 
     await logAuditEvent({
@@ -79,25 +97,18 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       details: { file_name: doc.file_name },
     });
 
-    return NextResponse.json({
-      success: true,
-      data: {
-        url: signedUrlData.signedUrl,
-        file_name: doc.file_name,
-        mime_type: doc.mime_type,
-        expires_in: 300,
+    const arrayBuffer = await file.arrayBuffer();
+    return new NextResponse(new Uint8Array(arrayBuffer), {
+      headers: {
+        'Content-Type': doc.mime_type || 'application/octet-stream',
+        'Content-Disposition': `attachment; filename="${doc.file_name.replace(/"/g, '')}"`,
+        'Cache-Control': 'no-store',
       },
     });
   } catch (err: unknown) {
     if (err instanceof AuthorizationError) {
-      return NextResponse.json(
-        { success: false, error: err.message },
-        { status: err.statusCode }
-      );
+      return NextResponse.json({ success: false, error: err.message }, { status: err.statusCode });
     }
-    return NextResponse.json(
-      { success: false, error: 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }
 }

@@ -1,29 +1,49 @@
-import { createClient, createAdminClient } from '@/lib/supabase/server';
+import { createAdminClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import type { User, UserRole, PermissionLevel } from '@/lib/types';
-import { headers } from 'next/headers';
+import { headers, cookies } from 'next/headers';
+import { evaluateDocumentPermission } from '@/lib/permission';
+import { getDocument, getPermissionsForDocument, findUserById } from '@/lib/local-db';
+import { SESSION_COOKIE, verifySessionToken } from '@/lib/session';
 
 /**
  * Get the authenticated user from the current request.
  * Returns null if not authenticated — never trust client-supplied identity.
  */
 export async function getAuthenticatedUser(): Promise<User | null> {
-  const supabase = await createClient();
-  const { data: { user: authUser } } = await supabase.auth.getUser();
+  try {
+    const cookieStore = await cookies();
+    const token = cookieStore.get(SESSION_COOKIE)?.value;
+    const sessionUser = await verifySessionToken(token);
+    if (sessionUser) {
+      if (!isSupabaseConfigured()) {
+        return findUserById(sessionUser.id) ?? sessionUser;
+      }
+      return sessionUser;
+    }
+  } catch {
+    // cookies() unavailable
+  }
 
-  if (!authUser) return null;
+  if (!isSupabaseConfigured()) return null;
 
-  const { data: profile } = await supabase
-    .from('users')
-    .select('*')
-    .eq('id', authUser.id)
-    .single();
+  try {
+    const supabase = await (await import('@/lib/supabase/server')).createClient();
+    const { data: { user: authUser } } = await supabase.auth.getUser();
 
-  return profile as User | null;
+    if (!authUser) return null;
+
+    const { data: profile } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', authUser.id)
+      .single();
+
+    return profile as User | null;
+  } catch {
+    return null;
+  }
 }
 
-/**
- * Require an authenticated user. Throws if not authenticated.
- */
 export async function requireAuth(): Promise<User> {
   const user = await getAuthenticatedUser();
   if (!user) {
@@ -35,9 +55,6 @@ export async function requireAuth(): Promise<User> {
   return user;
 }
 
-/**
- * Require a specific role. Throws if user doesn't have the role.
- */
 export async function requireRole(allowedRoles: UserRole[]): Promise<User> {
   const user = await requireAuth();
   if (!allowedRoles.includes(user.role)) {
@@ -51,85 +68,62 @@ export async function requireRole(allowedRoles: UserRole[]): Promise<User> {
 
 /**
  * Check if a user has active permission on a document.
- * This is the application-level check (defense in depth — RLS is the final boundary).
- * 
- * IMPORTANT: This checks revoked_at and expires_at on every call.
- * No caching of authorization decisions.
+ * Application-level check — RLS is the final boundary when Supabase is on.
+ * Checks revoked_at and expires_at on every call. No caching.
  */
 export async function checkDocumentPermission(
   userId: string,
   documentId: string,
   requiredLevel: PermissionLevel = 'read'
 ): Promise<{ allowed: boolean; reason: string }> {
+  if (!isSupabaseConfigured()) {
+    const doc = getDocument(documentId) ?? null;
+    const grants = getPermissionsForDocument(documentId);
+    return evaluateDocumentPermission({
+      document: doc
+        ? { id: doc.id, owner_id: doc.owner_id, is_deleted: doc.is_deleted }
+        : null,
+      grants,
+      userId,
+      requiredLevel,
+    });
+  }
+
   const supabaseAdmin = createAdminClient();
 
-  // Check if document exists and is not deleted
   const { data: doc } = await supabaseAdmin
     .from('documents')
     .select('id, owner_id, is_deleted')
     .eq('id', documentId)
     .single();
 
-  if (!doc) {
-    return { allowed: false, reason: 'Document not found' };
-  }
-
-  if (doc.is_deleted) {
-    return { allowed: false, reason: 'Document has been deleted' };
-  }
-
-  // Owner always has full access to their own documents
-  if (doc.owner_id === userId) {
-    return { allowed: true, reason: 'Document owner' };
-  }
-
-  // Check for active permission grant
   const { data: permissions } = await supabaseAdmin
     .from('document_permissions')
-    .select('*')
-    .eq('document_id', documentId)
-    .eq('user_id', userId)
-    .is('revoked_at', null);
+    .select('user_id, permission_level, revoked_at, expires_at')
+    .eq('document_id', documentId);
 
-  if (!permissions || permissions.length === 0) {
-    return { allowed: false, reason: 'No permission grant exists' };
-  }
-
-  // Filter for valid (non-expired) permissions with sufficient level
-  interface PermissionRow {
-    permission_level: string;
-    expires_at: string | null;
-  }
-  const validPermission = (permissions as unknown as PermissionRow[]).find((p) => {
-    // Check expiry
-    if (p.expires_at && new Date(p.expires_at) <= new Date()) {
-      return false;
-    }
-    // Check level
-    if (requiredLevel === 'edit') {
-      return p.permission_level === 'edit';
-    }
-    // Read access: either 'read' or 'edit' grants read
-    return p.permission_level === 'read' || p.permission_level === 'edit';
+  return evaluateDocumentPermission({
+    document: doc ?? null,
+    grants: (permissions as Array<{
+      user_id: string;
+      permission_level: string;
+      revoked_at: string | null;
+      expires_at: string | null;
+    }>) || [],
+    userId,
+    requiredLevel,
   });
-
-  if (!validPermission) {
-    return {
-      allowed: false,
-      reason: 'Permission expired or insufficient level',
-    };
-  }
-
-  return { allowed: true, reason: `Has ${validPermission.permission_level} permission` };
 }
 
-/**
- * Check if a user is the owner of a document.
- */
 export async function isDocumentOwner(
   userId: string,
   documentId: string
 ): Promise<boolean> {
+  if (!isSupabaseConfigured()) {
+    const doc = getDocument(documentId);
+    return doc?.owner_id === userId;
+  }
+
   const supabaseAdmin = createAdminClient();
   const { data: doc } = await supabaseAdmin
     .from('documents')
@@ -140,9 +134,6 @@ export async function isDocumentOwner(
   return doc?.owner_id === userId;
 }
 
-/**
- * Extract request metadata for audit logging.
- */
 export async function getRequestMeta(): Promise<{
   ipAddress: string | null;
   userAgent: string | null;
@@ -157,9 +148,6 @@ export async function getRequestMeta(): Promise<{
   };
 }
 
-/**
- * Custom error for authorization failures.
- */
 export class AuthorizationError extends Error {
   constructor(
     message: string,

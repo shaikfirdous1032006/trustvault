@@ -1,4 +1,5 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
+import { getAuthenticatedUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import type { User } from "@/lib/types";
 import {
@@ -11,6 +12,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
+  Info,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -19,38 +21,13 @@ export const metadata = {
 };
 
 export default async function DashboardPage() {
-  const supabase = await createClient();
-  const {
-    data: { user: authUser },
-  } = await supabase.auth.getUser();
+  const user = await getAuthenticatedUser();
+  if (!user) redirect("/login");
 
-  if (!authUser) redirect("/login");
+  const isConfigured = isSupabaseConfigured();
 
-  const { data: profile } = await supabase
-    .from("users")
-    .select("*")
-    .eq("id", authUser.id)
-    .single();
-
-  if (!profile) redirect("/login");
-  const user = profile as User;
-
-  // Fetch stats based on role
-  const { count: docCount } = await supabase
-    .from("documents")
-    .select("*", { count: "exact", head: true })
-    .eq("is_deleted", false);
-
-  const { data: recentDocs } = await supabase
-    .from("documents")
-    .select(
-      "id, title, category, created_at, owner:users!documents_owner_id_fkey(email, full_name)"
-    )
-    .eq("is_deleted", false)
-    .order("created_at", { ascending: false })
-    .limit(5);
-
-  // Fetch recent audit events (if owner or admin)
+  let docCount = 0;
+  let recentDocs: any[] = [];
   let recentAudit: Array<{
     id: string;
     action: string;
@@ -58,31 +35,91 @@ export default async function DashboardPage() {
     occurred_at: string;
     actor_email: string | null;
   }> = [];
-  if (user.role === "admin" || user.role === "owner") {
-    const { data: events } = await supabase
-      .from("audit_events")
-      .select("id, action, result, occurred_at, actor_email")
-      .order("occurred_at", { ascending: false })
-      .limit(8);
-    recentAudit = events || [];
-  }
-
-  // Admin-specific: denied access count
   let deniedCount = 0;
-  if (user.role === "admin") {
-    const { count } = await supabase
-      .from("audit_events")
-      .select("*", { count: "exact", head: true })
-      .eq("result", "denied");
-    deniedCount = count || 0;
-  }
+  let sharedCount = 0;
 
-  // Permissions shared with current user
-  const { count: sharedCount } = await supabase
-    .from("document_permissions")
-    .select("*", { count: "exact", head: true })
-    .eq("user_id", user.id)
-    .is("revoked_at", null);
+  if (isConfigured) {
+    try {
+      const supabase = await createClient();
+
+      const { count: dCount } = await supabase
+        .from("documents")
+        .select("*", { count: "exact", head: true })
+        .eq("is_deleted", false);
+      docCount = dCount || 0;
+
+      const { data: rDocs } = await supabase
+        .from("documents")
+        .select(
+          "id, title, category, created_at, owner:users!documents_owner_id_fkey(email, full_name)"
+        )
+        .eq("is_deleted", false)
+        .order("created_at", { ascending: false })
+        .limit(5);
+      recentDocs = rDocs || [];
+
+      if (user.role === "admin" || user.role === "owner") {
+        const { data: events } = await supabase
+          .from("audit_events")
+          .select("id, action, result, occurred_at, actor_email")
+          .order("occurred_at", { ascending: false })
+          .limit(8);
+        recentAudit = events || [];
+      }
+
+      if (user.role === "admin") {
+        const { count } = await supabase
+          .from("audit_events")
+          .select("*", { count: "exact", head: true })
+          .eq("result", "denied");
+        deniedCount = count || 0;
+      }
+
+      const { count: sCount } = await supabase
+        .from("document_permissions")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .is("revoked_at", null);
+      sharedCount = sCount || 0;
+    } catch {
+      // In case of query error, keep defaults
+    }
+  } else {
+    const { getStore, withUser } = await import("@/lib/local-db");
+    const { evaluateDocumentPermission } = await import("@/lib/permission");
+    const store = getStore();
+    const visible = store.documents.filter((doc) =>
+      evaluateDocumentPermission({
+        document: doc,
+        grants: store.permissions.filter((p) => p.document_id === doc.id),
+        userId: user.id,
+        requiredLevel: "read",
+      }).allowed
+    );
+    docCount = visible.filter((d) => !d.is_deleted).length;
+    recentDocs = visible
+      .filter((d) => !d.is_deleted)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, 5)
+      .map((d) => withUser(d, store));
+    sharedCount = store.permissions.filter(
+      (p) => p.user_id === user.id && !p.revoked_at
+    ).length;
+    deniedCount = store.audit.filter((e) => e.result === "denied").length;
+    if (user.role === "admin" || user.role === "owner") {
+      recentAudit = store.audit
+        .slice()
+        .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))
+        .slice(0, 8)
+        .map((e) => ({
+          id: e.id,
+          action: e.action,
+          result: e.result,
+          occurred_at: e.occurred_at,
+          actor_email: e.actor_email,
+        }));
+    }
+  }
 
   const greeting = getGreeting();
 
@@ -137,12 +174,12 @@ export default async function DashboardPage() {
         <div className="lg:col-span-2 card">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold flex items-center gap-2">
-              <FileText className="w-5 h-5 text-brand-400" />
+              <FileText className="w-5 h-5 text-brand-700" />
               Recent Documents
             </h2>
             <Link
               href="/dashboard/documents"
-              className="text-sm text-brand-400 hover:text-brand-300 flex items-center gap-1 transition-colors"
+              className="text-sm text-brand-700 hover:text-brand-800 flex items-center gap-1 font-medium transition-colors"
             >
               View all <ArrowRight className="w-3.5 h-3.5" />
             </Link>
@@ -157,11 +194,11 @@ export default async function DashboardPage() {
                   className="flex items-center gap-4 p-3 rounded-lg hover:bg-[var(--input-bg)] transition-all group"
                   style={{ animationDelay: `${i * 50}ms` }}
                 >
-                  <div className="w-10 h-10 rounded-lg bg-brand-600/15 flex items-center justify-center flex-shrink-0">
-                    <FileText className="w-5 h-5 text-brand-400" />
+                  <div className="w-10 h-10 rounded-lg bg-brand-700/10 flex items-center justify-center flex-shrink-0">
+                    <FileText className="w-5 h-5 text-brand-700" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate group-hover:text-brand-400 transition-colors">
+                    <p className="text-sm font-medium truncate group-hover:text-brand-700 transition-colors">
                       {doc.title}
                     </p>
                     <p className="text-xs text-[var(--muted)]">
@@ -304,7 +341,7 @@ function StatCard({
   color: "brand" | "success" | "danger" | "info";
 }) {
   const colors = {
-    brand: "from-brand-500/15 to-brand-700/5 text-brand-400",
+    brand: "from-brand-700/15 to-brand-500/10 text-brand-700",
     success: "from-success/15 to-success/5 text-success",
     danger: "from-danger/15 to-danger/5 text-danger",
     info: "from-info/15 to-info/5 text-info",
