@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # TrustVault — Zero-Trust Document Security, Privacy Intelligence & Threat Detection Platform
 
 > **Secure Every Document. Detect Every Threat. Prove Every Decision.**
@@ -189,3 +190,7 @@ npm run build  # Compiles all routes with 0 TypeScript errors
 - [Evaluation Report: Threat Detection & Privacy Shield](file:///docs/EVALUATION_REPORT.md)
 - [AI Development & Prompt Engineering Log](file:///PROMPTS.md)
 - [Recruiter / Interview Demo Script](file:///docs/DEMO_SCRIPT.md)
+=======
+# trustvault
+Secure document sharing with per-document permissions and a tamper-evident audit trail
+>>>>>>> 245cc374541d555429a3b60d738e9d63a1668f09
