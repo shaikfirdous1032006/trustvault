@@ -15,6 +15,9 @@ import {
   ChevronRight,
   Menu,
   X,
+  ShieldAlert,
+  Sliders,
+  Sparkles,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -42,15 +45,33 @@ const NAV_ITEMS = [
     roles: ["owner", "admin"],
   },
   {
-    href: "/dashboard/admin/users",
-    label: "Users",
-    icon: Users,
+    href: "/dashboard/privacy",
+    label: "Privacy Shield",
+    icon: Sparkles,
+    roles: ["owner", "admin"],
+  },
+  {
+    href: "/dashboard/admin/alerts",
+    label: "Threat Alerts",
+    icon: ShieldAlert,
     roles: ["admin"],
   },
   {
     href: "/dashboard/admin/audit",
-    label: "Audit Log",
+    label: "Audit Chain",
     icon: Activity,
+    roles: ["admin"],
+  },
+  {
+    href: "/dashboard/admin/simulator",
+    label: "Policy Simulator",
+    icon: Sliders,
+    roles: ["admin"],
+  },
+  {
+    href: "/dashboard/admin/users",
+    label: "Users & Roles",
+    icon: Users,
     roles: ["admin"],
   },
 ];

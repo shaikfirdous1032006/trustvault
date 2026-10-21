@@ -67,7 +67,7 @@ export async function logAuditEvent(params: AuditLogParams): Promise<void> {
 
   try {
     if (!isSupabaseConfigured()) {
-      appendAudit({
+      await appendAudit({
         occurred_at: occurredAt,
         actor_id: params.actorId,
         actor_email: params.actorEmail,
@@ -129,30 +129,37 @@ export async function logAuditEvent(params: AuditLogParams): Promise<void> {
  * Verify the integrity of the audit hash chain.
  * Returns mismatched events if any.
  */
-export async function verifyAuditChain(): Promise<{
-  valid: boolean;
-  mismatches: Array<{ id: string; expected: string; actual: string }>;
-}> {
+export async function verifyAuditChain(): Promise<ChainVerification> {
   if (!isSupabaseConfigured()) {
-    const events = getStore().audit.slice().sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
-    return verifyEvents(events);
+    return verifyEvents(getStore().audit);
   }
 
   const supabaseAdmin = createAdminClient();
 
   const { data: events, error } = await supabaseAdmin
     .from('audit_events')
-    .select('*')
-    .order('occurred_at', { ascending: true });
+    .select('*');
 
   if (error || !events) {
-    return { valid: false, mismatches: [{ id: 'query_error', expected: '', actual: error?.message || 'Unknown error' }] };
+    const mismatches = [
+      { id: 'query_error', expected: 'a readable audit_events table', actual: error?.message || 'Unknown error' },
+    ];
+    return { valid: false, mismatches, firstInvalid: 'query_error' };
   }
 
   return verifyEvents(events);
 }
 
-function verifyEvents(events: Array<{
+export type ChainMismatch = { id: string; expected: string; actual: string };
+
+export type ChainVerification = {
+  valid: boolean;
+  mismatches: ChainMismatch[];
+  /** id of the first event that fails verification, or null when the chain is intact. */
+  firstInvalid: string | null;
+};
+
+type ChainEvent = {
   id: string;
   occurred_at: string;
   actor_id: string | null;
@@ -162,44 +169,93 @@ function verifyEvents(events: Array<{
   details_jsonb: Record<string, unknown>;
   event_hash: string;
   prev_hash: string | null;
-}>): {
-  valid: boolean;
-  mismatches: Array<{ id: string; expected: string; actual: string }>;
-} {
+};
 
-  const mismatches: Array<{ id: string; expected: string; actual: string }> = [];
-  let prevHash: string | null = null;
+/**
+ * Walk the chain by following prev_hash links instead of trusting an ORDER BY.
+ *
+ * Timestamp order is not authoritative: two events can share a millisecond, a clock
+ * can step backwards, and Postgres returns rows in whatever order it likes once the
+ * ORDER BY is dropped. Following the links means the chain decides its own sequence,
+ * and anything the walk cannot reach was excised, rewired or forked.
+ */
+function verifyEvents(events: ChainEvent[]): ChainVerification {
+  const mismatches: ChainMismatch[] = [];
+  const childrenByPrevHash = new Map<string, ChainEvent[]>();
+  const roots: ChainEvent[] = [];
 
   for (const event of events) {
-    const detailsJson = JSON.stringify(event.details_jsonb || {});
-    const expectedHash = computeEventHash(
-      event.occurred_at,
-      event.actor_id,
-      event.document_id,
-      event.action,
-      event.result,
-      detailsJson,
-      prevHash
-    );
-
-    if (event.event_hash !== expectedHash) {
-      mismatches.push({
-        id: event.id,
-        expected: expectedHash,
-        actual: event.event_hash,
-      });
+    if (event.prev_hash === null) {
+      roots.push(event);
+      continue;
     }
-
-    if (event.prev_hash !== prevHash) {
-      mismatches.push({
-        id: event.id,
-        expected: `prev_hash should be ${prevHash}`,
-        actual: event.prev_hash || 'null',
-      });
-    }
-
-    prevHash = event.event_hash;
+    const siblings = childrenByPrevHash.get(event.prev_hash);
+    if (siblings) siblings.push(event);
+    else childrenByPrevHash.set(event.prev_hash, [event]);
   }
 
-  return { valid: mismatches.length === 0, mismatches };
+  if (roots.length === 0 && events.length > 0) {
+    mismatches.push({
+      id: events[0].id,
+      expected: 'the genesis event has prev_hash = null',
+      actual: `no event links to a genesis across ${events.length} rows`,
+    });
+  }
+  if (roots.length > 1) {
+    mismatches.push({
+      id: roots[1].id,
+      expected: 'exactly one event with prev_hash = null',
+      actual: `${roots.length} events claim to be first`,
+    });
+  }
+
+  const visited = new Set<string>();
+  let current: ChainEvent | undefined = roots[0];
+
+  while (current) {
+    visited.add(current.id);
+
+    const expectedHash = computeEventHash(
+      current.occurred_at,
+      current.actor_id,
+      current.document_id,
+      current.action,
+      current.result,
+      JSON.stringify(current.details_jsonb || {}),
+      current.prev_hash
+    );
+
+    if (current.event_hash !== expectedHash) {
+      mismatches.push({
+        id: current.id,
+        expected: expectedHash,
+        actual: current.event_hash,
+      });
+    }
+
+    const next: ChainEvent[] = childrenByPrevHash.get(current.event_hash) ?? [];
+    if (next.length > 1) {
+      mismatches.push({
+        id: next[1].id,
+        expected: `only one event extends ${current.id}`,
+        actual: `${next.length} events share prev_hash ${current.event_hash}`,
+      });
+    }
+    current = next[0];
+  }
+
+  for (const event of events) {
+    if (visited.has(event.id) || event.prev_hash === null) continue;
+    mismatches.push({
+      id: event.id,
+      expected: 'reachable from the genesis event through prev_hash',
+      actual: `orphaned: no stored event_hash matches ${event.prev_hash}`,
+    });
+  }
+
+  return {
+    valid: mismatches.length === 0,
+    mismatches,
+    firstInvalid: mismatches.length > 0 ? mismatches[0].id : null,
+  };
 }

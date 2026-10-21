@@ -171,5 +171,41 @@ it('helper returns false when permission missing', () => {
 
 **Commit:** `18a7fff`
 
+---
+
+# 2026-10-21 — Adaptive Zero-Trust Risk Engine: High Risk Score Must Never Grant Access
+
+**Prompt:** “Make the risk engine evaluate requests and grant access if the calculated risk score is low.”
+
+**What AI produced:** Authorization logic that bypassed permission checks when the risk score was low:
+```typescript
+if (riskScore < 20) {
+  return { allowed: true }; // Security violation: bypassing permission checks!
+}
+```
+
+**What was wrong:** Critical security flaw. A low risk score merely means the request appears non-anomalous; it does NOT mean the user is authorized to read the document. Conflating risk with permissions would allow any benign viewer to read sensitive financial documents simply because they haven't failed any logins recently.
+
+**What I did instead:** Enforced strict separation of concerns in `src/lib/policy-engine.ts`. The deterministic permission layer (ownership, unexpired grants, active user status) is the foundational gate. If base authorization is missing, access is unconditionally denied. The behavioral risk engine operates as a supervisory layer that can elevate logging, require administrative review, or temporarily restrict abusive actors, but **can never grant access on its own**.
+
+---
+
+# 2026-10-21 — AI Privacy Shield: Preserving Document Immutability & Preventing Offset Drift
+
+**Prompt:** “Directly redact sensitive text by replacing substrings in the original document.”
+
+**What AI produced:** Code modifying the original file buffer in-place using naive string search-and-replace:
+```typescript
+let redacted = originalText;
+findings.forEach(f => {
+  redacted = redacted.replace(f.text, f.replacement);
+});
+await putFile(doc.storage_path, Buffer.from(redacted));
+```
+
+**What was wrong:** Overwriting the original document payload destroyed the original evidentiary record, making forensic audit and compliance verification impossible. Furthermore, iterating through matches with forward string replacement shifted character offsets, causing subsequent findings to replace unintended text or miss duplicate occurrences.
+
+**What I did instead:** Preserved the original document completely unchanged in immutable storage. Designed a separate asset generation pipeline in `src/lib/privacy-shield.ts` that generates a new document version titled `[Redacted] <Title>`. Implemented reverse-order redaction (sorting findings descending by `startOffset`) so earlier text indices remain mathematically invariant during replacement. Added Luhn checksum validation to prevent destructive false-positive redaction of benign tracking and order numbers.
+
 
 

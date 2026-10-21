@@ -1,10 +1,13 @@
+import { csrfRejection } from '@/lib/security';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import { logAuditEvent } from '@/lib/audit';
 import { getRequestMeta, getAuthenticatedUser } from '@/lib/auth';
 import { SESSION_COOKIE } from '@/lib/session';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
-export async function POST() {
+export async function POST(request: NextRequest) {
+  const crossOrigin = csrfRejection(request);
+  if (crossOrigin) return crossOrigin;
   const { ipAddress, userAgent } = await getRequestMeta();
 
   try {

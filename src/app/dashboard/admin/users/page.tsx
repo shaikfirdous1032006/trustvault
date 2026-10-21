@@ -1,13 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import {
   Users,
   Search,
   Shield,
   ChevronLeft,
   ChevronRight,
-  User,
   CheckCircle2,
   XCircle,
 } from "lucide-react";
@@ -30,28 +29,34 @@ export default function AdminUsersPage() {
   const [search, setSearch] = useState("");
   const pageSize = 20;
 
-  const fetchUsers = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      params.set("page", page.toString());
-      params.set("pageSize", pageSize.toString());
-      const res = await fetch(`/api/admin/users?${params}`);
-      const data = await res.json();
-      if (data.success) {
-        setUsers(data.data);
-        setTotal(data.total);
-      }
-    } catch {
-      /* ignored */
-    } finally {
-      setLoading(false);
-    }
-  }, [page]);
-
   useEffect(() => {
-    fetchUsers();
-  }, [fetchUsers]);
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const params = new URLSearchParams();
+        params.set("page", page.toString());
+        params.set("pageSize", pageSize.toString());
+        const res = await fetch(`/api/admin/users?${params}`);
+        const data = await res.json();
+        if (data.success && !cancelled) {
+          setUsers(data.data);
+          setTotal(data.total);
+        }
+      } catch {
+        /* ignored */
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [page]);
 
   const filteredUsers = search
     ? users.filter(

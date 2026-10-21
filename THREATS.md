@@ -297,3 +297,51 @@ To protect against database-level rewriting, TrustVault supports an **External A
 
 **Accepted Risk:** Accepted as standard state-of-the-art practice for enterprise tamper evidence without requiring costly distributed consensus on every write transaction.
 
+---
+
+## 25. Automated Probing & Rapid IDOR Enumeration
+
+**Threat:** An authenticated actor systematically probes numerical or UUID document IDs in quick succession to identify permission gaps or enumerate private document titles.
+
+**Mitigation:** The Adaptive Zero-Trust Policy Engine (`src/lib/policy-engine.ts`) tracks recent denied requests per actor. If 5+ denials occur in a short window or probe confidential-tier documents, an automated 15-minute temporary security restriction (`TEMPORARILY_RESTRICT`) is engaged, halting further probing.
+
+**Residual Risk:** Slow, low-frequency probing below the sliding window threshold over multiple weeks.
+
+**Accepted Risk:** Addressed by long-term audit trail aggregation and scheduled security review.
+
+---
+
+## 26. AI Privacy Shield Sensitive Data Leakage & False Negatives
+
+**Threat:** A sensitive entity (e.g. customized national ID or obfuscated credit card format) is missed by regular expression detectors and included in a shared document.
+
+**Mitigation:** TrustVault enforces **Human-in-the-Loop** verification. The Privacy Shield highlights detected entities with confidence scores, but the document owner must review and explicitly authorize the redaction masks before the platform mints a new protected copy. The original file is never overwritten. Furthermore, credit card detection incorporates the Luhn checksum algorithm to prevent false positives on random 13-19 digit numbers.
+
+**Residual Risk:** Novel, proprietary sensitive data formats not covered by known pattern rules.
+
+**Accepted Risk:** Document owners remain responsible for final visual review before distribution.
+
+---
+
+## 27. Access Policy Simulator Abuse & Information Disclosure
+
+**Threat:** A low-privileged viewer attempts to access the Policy Simulator to discover user permission models or probe document metadata.
+
+**Mitigation:** The Policy Simulator endpoint (`/api/admin/policy/simulate`) enforces strict `requireRole(['admin'])`. Non-admin attempts return immediate 403 Forbidden and log a denied audit event.
+
+**Residual Risk:** Malicious administrator previewing permissions (acceptable as admins already have full metadata visibility).
+
+**Accepted Risk:** Administrator actions are permanently hash-chained in the tamper-evident audit log.
+
+---
+
+## 28. Cryptographic Checkpoint Signature Forgery & Rollback
+
+**Threat:** An attacker copies an old valid signed checkpoint and presents it to prove a current audit chain state, concealing recent deleted records.
+
+**Mitigation:** Checkpoints include an RFC 3339 UTC timestamp, an incremental monotonic `eventCount`, and the exact `chainHeadHash`. When verifying a checkpoint report, client tools verify that the checkpoint's head matches the active chain head and that `eventCount` matches the total verified blocks.
+
+**Residual Risk:** Physical compromise of the server's `SESSION_SECRET` signing key.
+
+**Accepted Risk:** Key is isolated in server environment variables and never checked into version control.
+

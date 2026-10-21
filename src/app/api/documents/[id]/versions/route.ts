@@ -1,3 +1,4 @@
+import { csrfRejection } from '@/lib/security';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import { requireAuth, checkDocumentPermission, isDocumentOwner, getRequestMeta, AuthorizationError } from '@/lib/auth';
 import { logAuditEvent } from '@/lib/audit';
@@ -13,6 +14,8 @@ function denyNotFound() {
 }
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
+  const crossOrigin = csrfRejection(request);
+  if (crossOrigin) return crossOrigin;
   const { id } = await params;
   const { ipAddress, userAgent } = await getRequestMeta();
 

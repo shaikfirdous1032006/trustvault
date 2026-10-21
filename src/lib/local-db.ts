@@ -6,6 +6,7 @@ import type {
   Document,
   DocumentPermission,
   DocumentVersion,
+  ShareLink,
   User,
 } from '@/lib/types';
 
@@ -27,6 +28,7 @@ export interface LocalStore {
   documents: Document[];
   permissions: DocumentPermission[];
   versions: DocumentVersion[];
+  share_links: ShareLink[];
   audit: AuditEvent[];
 }
 
@@ -79,7 +81,6 @@ function seedFile(name: string, contents: string): { storagePath: string; size: 
 
 function seedStore(): LocalStore {
   ensureDirs();
-  const now = new Date().toISOString();
   const earlier = new Date(Date.now() - 3600_000).toISOString();
   const earlier2 = new Date(Date.now() - 7200_000).toISOString();
 
@@ -194,6 +195,7 @@ function seedStore(): LocalStore {
     documents,
     permissions,
     versions,
+    share_links: [],
     audit: [],
   };
 
@@ -267,7 +269,11 @@ function readStore(): LocalStore {
     fs.writeFileSync(STORE_PATH, JSON.stringify(seeded, null, 2));
     return seeded;
   }
-  return JSON.parse(fs.readFileSync(STORE_PATH, 'utf8')) as LocalStore;
+  const store = JSON.parse(fs.readFileSync(STORE_PATH, 'utf8')) as LocalStore;
+  // Stores written before share links existed have no key for them; an undefined
+  // array here would crash the first read that touches it.
+  if (!Array.isArray(store.share_links)) store.share_links = [];
+  return store;
 }
 
 function writeStore(store: LocalStore) {
@@ -320,6 +326,18 @@ export function getPermissionsForDocument(documentId: string): DocumentPermissio
   return readStore().permissions.filter((p) => p.document_id === documentId);
 }
 
+export function getShareLinksForDocument(documentId: string): ShareLink[] {
+  return readStore().share_links.filter((l) => l.document_id === documentId);
+}
+
+export function findShareLinkByTokenHash(tokenHash: string): ShareLink | undefined {
+  return readStore().share_links.find((l) => l.token_hash === tokenHash);
+}
+
+export function getShareLinkById(id: string): ShareLink | undefined {
+  return readStore().share_links.find((l) => l.id === id);
+}
+
 export function putFile(storagePath: string, bytes: Buffer) {
   const full = path.join(FILES_DIR, storagePath);
   fs.mkdirSync(path.dirname(full), { recursive: true });
@@ -332,15 +350,21 @@ export function readFileBytes(storagePath: string): Buffer | null {
   return fs.readFileSync(full);
 }
 
-export function appendAudit(event: Omit<AuditEvent, 'id' | 'event_hash' | 'prev_hash'> & { prev_hash?: string | null; event_hash?: string }): AuditEvent {
-  let created!: AuditEvent;
-  const store = readStore();
-  const last = store.audit[store.audit.length - 1];
-  const prevHash = last?.event_hash ?? null;
-  const detailsJson = JSON.stringify(event.details_jsonb || {});
-  const eventHash =
-    event.event_hash ||
-    computeEventHash(
+/**
+ * Append an audit event through the same write lock that serialises every other
+ * mutation, and always derive prev_hash/event_hash from the current head so a
+ * caller cannot inject its own chain position. The lock closes the read-modify-
+ * write window in-process; it does not make the JSON file safe against two
+ * processes writing at once — that is documented in THREATS.md.
+ */
+export async function appendAudit(
+  event: Omit<AuditEvent, 'id' | 'event_hash' | 'prev_hash'>
+): Promise<AuditEvent> {
+  return withLock(() => {
+    const store = readStore();
+    const prevHash = store.audit[store.audit.length - 1]?.event_hash ?? null;
+    const detailsJson = JSON.stringify(event.details_jsonb || {});
+    const eventHash = computeEventHash(
       event.occurred_at,
       event.actor_id,
       event.document_id,
@@ -349,15 +373,18 @@ export function appendAudit(event: Omit<AuditEvent, 'id' | 'event_hash' | 'prev_
       detailsJson,
       prevHash
     );
-  created = {
-    ...event,
-    id: randomUUID(),
-    prev_hash: prevHash,
-    event_hash: eventHash,
-  };
-  store.audit.push(created);
-  writeStore(store);
-  return created;
+
+    const created: AuditEvent = {
+      ...event,
+      id: randomUUID(),
+      prev_hash: prevHash,
+      event_hash: eventHash,
+    };
+
+    store.audit.push(created);
+    writeStore(store);
+    return created;
+  });
 }
 
 export { computeEventHash, sha256 };

@@ -1,8 +1,16 @@
+
 import type { User, UserRole } from '@/lib/types';
 
 export const SESSION_COOKIE = 'tv_session';
 
-type SessionPayload = {
+export class SessionConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SessionConfigError';
+  }
+}
+
+export interface SessionPayload {
   id: string;
   email: string;
   role: UserRole;
@@ -10,95 +18,230 @@ type SessionPayload = {
   is_active: boolean;
   iat: number;
   exp: number;
-};
+}
+
+const MIN_SECRET_LENGTH = 32;
+const SESSION_LIFETIME_SECONDS = 60 * 60 * 24;
+const encoder = new TextEncoder();
+const decoder = new TextDecoder('utf-8', { fatal: true });
+const ALLOWED_ROLES: readonly UserRole[] = [
+  'admin',
+  'owner',
+  'viewer',
+];
 
 function getSecret(): string {
-  return process.env.SESSION_SECRET || 'trustvault-local-dev-only-change-me';
+  const secret = process.env.SESSION_SECRET;
+
+  if (!secret || secret.length < MIN_SECRET_LENGTH) {
+    throw new SessionConfigError(
+      'SESSION_SECRET must contain at least 32 characters.',
+    );
+  }
+
+  return secret;
 }
 
-function toHex(buffer: ArrayBuffer): string {
-  return [...new Uint8Array(buffer)]
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+function getCrypto(): Crypto {
+  if (!globalThis.crypto?.subtle) {
+    throw new Error('Web Crypto API is unavailable in this runtime.');
+  }
+
+  return globalThis.crypto;
 }
 
-async function hmacSha256(message: string, secret: string): Promise<string> {
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey(
+function toBase64Url(bytes: Uint8Array): string {
+  let binary = '';
+
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+
+  return btoa(binary)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function fromBase64Url(value: string): Uint8Array {
+  if (
+    !value ||
+    !/^[A-Za-z0-9_-]+$/.test(value) ||
+    value.length % 4 === 1
+  ) {
+    throw new Error('Invalid token encoding.');
+  }
+
+  const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+  const binary = atob(padded);
+
+  return Uint8Array.from(
+    binary,
+    (character) => character.charCodeAt(0),
+  );
+}
+
+function asBufferSource(bytes: Uint8Array): BufferSource {
+  return new Uint8Array(bytes) as unknown as BufferSource;
+}
+
+async function getSigningKey(): Promise<CryptoKey> {
+  const keyBytes = encoder.encode(getSecret());
+
+  return getCrypto().subtle.importKey(
     'raw',
-    enc.encode(secret),
+    asBufferSource(keyBytes),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
-    ['sign']
+    ['sign', 'verify'],
   );
-  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(message));
-  return toHex(sig);
 }
 
-function b64urlEncode(value: string): string {
-  const bytes = new TextEncoder().encode(value);
-  let binary = '';
-  bytes.forEach((b) => {
-    binary += String.fromCharCode(b);
-  });
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+async function signBody(body: string): Promise<Uint8Array> {
+  const key = await getSigningKey();
+  const bodyBytes = encoder.encode(body);
+
+  const signature = await getCrypto().subtle.sign(
+    'HMAC',
+    key,
+    asBufferSource(bodyBytes),
+  );
+
+  return new Uint8Array(signature);
 }
 
-function b64urlDecode(value: string): string {
-  const padded = value.replace(/-/g, '+').replace(/_/g, '/');
-  const pad = padded.length % 4 === 0 ? '' : '='.repeat(4 - (padded.length % 4));
-  const binary = atob(padded + pad);
-  const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}
+export async function createSessionToken(
+  user: Pick<
+    User,
+    'id' | 'email' | 'role' | 'full_name' | 'is_active'
+  >,
+): Promise<string> {
+  if (
+    typeof user.id !== 'string' ||
+    user.id.length === 0 ||
+    typeof user.email !== 'string' ||
+    user.email.length === 0 ||
+    !ALLOWED_ROLES.includes(user.role)
+  ) {
+    throw new Error('Invalid session user.');
+  }
 
-export async function createSessionToken(user: {
-  id: string;
-  email: string;
-  role: UserRole;
-  full_name: string | null;
-  is_active?: boolean;
-}): Promise<string> {
+  if (
+    user.full_name !== null &&
+    typeof user.full_name !== 'string'
+  ) {
+    throw new Error('Invalid user name.');
+  }
+
   const now = Math.floor(Date.now() / 1000);
+
   const payload: SessionPayload = {
     id: user.id,
     email: user.email,
     role: user.role,
     full_name: user.full_name,
-    is_active: user.is_active !== false,
+    is_active: true,
     iat: now,
-    exp: now + 60 * 60 * 24,
+    exp: now + SESSION_LIFETIME_SECONDS,
   };
-  const body = b64urlEncode(JSON.stringify(payload));
-  const sig = await hmacSha256(body, getSecret());
-  return `${body}.${sig}`;
+
+  const body = toBase64Url(
+    encoder.encode(JSON.stringify(payload)),
+  );
+
+  const signature = toBase64Url(await signBody(body));
+
+  return `${body}.${signature}`;
 }
 
-export async function verifySessionToken(token: string | undefined | null): Promise<User | null> {
-  if (!token) return null;
-  const [body, sig] = token.split('.');
-  if (!body || !sig) return null;
-
-  const expected = await hmacSha256(body, getSecret());
-  if (expected.length !== sig.length) return null;
-
-  let mismatch = 0;
-  for (let i = 0; i < expected.length; i++) {
-    mismatch |= expected.charCodeAt(i) ^ sig.charCodeAt(i);
-  }
-  if (mismatch !== 0) return null;
-
+export async function verifySessionToken(
+  token: string,
+): Promise<(User & { iat: number; exp: number }) | null> {
   try {
-    const payload = JSON.parse(b64urlDecode(body)) as SessionPayload;
-    if (payload.exp < Math.floor(Date.now() / 1000)) return null;
+    if (
+      typeof token !== 'string' ||
+      token.length === 0 ||
+      token.length > 8192
+    ) {
+      return null;
+    }
+
+    const parts = token.split('.');
+
+    if (parts.length !== 2) {
+      return null;
+    }
+
+    const [body, signature] = parts;
+    const providedSignature = fromBase64Url(signature);
+
+    if (providedSignature.length !== 32) {
+      return null;
+    }
+
+    const key = await getSigningKey();
+    const bodyBytes = encoder.encode(body);
+
+    const valid = await getCrypto().subtle.verify(
+      'HMAC',
+      key,
+      asBufferSource(providedSignature),
+      asBufferSource(bodyBytes),
+    );
+
+    if (!valid) {
+      return null;
+    }
+
+    const payloadText = decoder.decode(fromBase64Url(body));
+    const payload: unknown = JSON.parse(payloadText);
+
+    if (
+      typeof payload !== 'object' ||
+      payload === null ||
+      Array.isArray(payload)
+    ) {
+      return null;
+    }
+
+    const data = payload as Partial<SessionPayload>;
+    const now = Math.floor(Date.now() / 1000);
+
+    if (
+      typeof data.id !== 'string' ||
+      data.id.length === 0 ||
+      typeof data.email !== 'string' ||
+      data.email.length === 0 ||
+      typeof data.role !== 'string' ||
+      !ALLOWED_ROLES.includes(data.role as UserRole) ||
+      data.is_active !== true ||
+      !(
+        typeof data.full_name === 'string' ||
+        data.full_name === null
+      ) ||
+      typeof data.iat !== 'number' ||
+      !Number.isSafeInteger(data.iat) ||
+      typeof data.exp !== 'number' ||
+      !Number.isSafeInteger(data.exp) ||
+      data.iat > now + 60 ||
+      data.exp <= now ||
+      data.exp <= data.iat ||
+      data.exp - data.iat > SESSION_LIFETIME_SECONDS
+    ) {
+      return null;
+    }
+
     return {
-      id: payload.id,
-      email: payload.email,
-      role: payload.role,
-      full_name: payload.full_name,
-      is_active: payload.is_active,
-      created_at: new Date(payload.iat * 1000).toISOString(),
-      updated_at: new Date(payload.iat * 1000).toISOString(),
+      id: data.id,
+      email: data.email,
+      role: data.role as UserRole,
+      full_name: data.full_name,
+      is_active: true,
+      iat: data.iat,
+      exp: data.exp,
+      created_at: new Date(data.iat * 1000).toISOString(),
+      updated_at: new Date(data.iat * 1000).toISOString(),
     };
   } catch {
     return null;

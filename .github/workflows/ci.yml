@@ -1,0 +1,47 @@
+name: TrustVault CI / DevSecOps Pipeline
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  security-and-quality:
+    name: Security Tests, Linting & Build Verification
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Verify Code Style & Lint
+        run: npm run lint
+
+      - name: Run Automated Security & Authorization Test Suite (Vitest)
+        env:
+          SESSION_SECRET: e7cb79cf640dd4e9f5d7d69964b93113c839db6ff18ae6a939986c437409225a
+          DEMO_PASSWORD: TrustVault2024!
+        run: npm test
+
+      - name: Run Threat Detection Benchmark
+        run: npx tsx scripts/evaluate-threat-detection.ts
+
+      - name: Run AI Privacy Shield Benchmark
+        run: npx tsx scripts/evaluate-privacy-shield.ts
+
+      - name: Build Next.js Production Bundle
+        env:
+          SESSION_SECRET: e7cb79cf640dd4e9f5d7d69964b93113c839db6ff18ae6a939986c437409225a
+          DEMO_PASSWORD: TrustVault2024!
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+        run: npm run build

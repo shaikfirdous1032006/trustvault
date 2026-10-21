@@ -1,3 +1,4 @@
+import { csrfRejection, checkRateLimit } from '@/lib/security';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import { requireAuth, getRequestMeta } from '@/lib/auth';
 import { logAuditEvent } from '@/lib/audit';
@@ -19,7 +20,7 @@ import {
 
 const uploadSchema = z.object({
   title: z.string().min(1).max(255),
-  description: z.string().max(1000).optional(),
+  description: z.string().max(1000).optional().nullable(),
   category: z.string().min(1).max(50),
 });
 
@@ -190,10 +191,32 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const crossOrigin = csrfRejection(request);
+  if (crossOrigin) return crossOrigin;
   const { ipAddress, userAgent } = await getRequestMeta();
 
   try {
     const user = await requireAuth();
+
+    // Uploads are the most expensive and most abusable write path: cap each account
+    // rather than each IP, because the IP a request appears to come from is a header
+    // a client can choose.
+    const throttle = checkRateLimit(`upload:${user.id}`, 30, 60_000);
+    if (!throttle.allowed) {
+      await logAuditEvent({
+        actorId: user.id,
+        actorEmail: user.email,
+        action: 'upload',
+        result: 'denied',
+        ipAddress,
+        userAgent,
+        details: { reason: 'Rate limit exceeded' },
+      });
+      return NextResponse.json(
+        { success: false, error: 'Too many uploads. Please try again shortly.' },
+        { status: 429, headers: { 'Retry-After': Math.ceil(throttle.resetMs / 1000).toString(), 'Cache-Control': 'no-store' } }
+      );
+    }
 
     if (user.role !== 'owner' && user.role !== 'admin') {
       await logAuditEvent({

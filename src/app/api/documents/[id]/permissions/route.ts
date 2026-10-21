@@ -1,3 +1,4 @@
+import { csrfRejection, checkRateLimit } from '@/lib/security';
 import { createClient, createAdminClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import { requireAuth, isDocumentOwner, getRequestMeta, AuthorizationError } from '@/lib/auth';
 import { logAuditEvent } from '@/lib/audit';
@@ -16,14 +17,13 @@ type RouteParams = { params: Promise<{ id: string }> };
 const grantSchema = z.object({
   user_email: z.string().email('Invalid email'),
   permission_level: z.enum(['read', 'edit']),
-  expires_at: z.string().datetime().optional(),
+  expires_at: z.string().datetime().optional().nullable(),
+  max_access_count: z.number().int().positive().optional().nullable(),
+  burn_after_read: z.boolean().optional(),
+  watermark_enabled: z.boolean().optional(),
   ai_suggested: z.boolean().optional(),
   ai_rationale: z.string().optional(),
 });
-
-function denyNotFound() {
-  return NextResponse.json({ success: false, error: 'Document not found' }, { status: 404 });
-}
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   const { id } = await params;
@@ -69,8 +69,22 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 }
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
+  const crossOrigin = csrfRejection(request);
+  if (crossOrigin) return crossOrigin;
   const { id } = await params;
   const { ipAddress, userAgent } = await getRequestMeta();
+
+  try {
+    const grantThrottle = checkRateLimit(`grant:${(await requireAuth()).id}`, 60, 60_000);
+    if (!grantThrottle.allowed) {
+      return NextResponse.json(
+        { success: false, error: 'Too many permission changes. Please try again shortly.' },
+        { status: 429, headers: { 'Retry-After': Math.ceil(grantThrottle.resetMs / 1000).toString(), 'Cache-Control': 'no-store' } }
+      );
+    }
+  } catch {
+    /* fall through to the handler's own authentication error */
+  }
 
   try {
     const user = await requireAuth();
@@ -103,6 +117,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
+    const maxAccess = parsed.data.burn_after_read ? 1 : (parsed.data.max_access_count ?? null);
+    const watermarkEnabled = parsed.data.watermark_enabled ?? true;
+
     if (!isSupabaseConfigured()) {
       const targetUser = findUserByEmail(parsed.data.user_email);
       if (!targetUser) {
@@ -129,6 +146,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           existing.granted_by = user.id;
           existing.granted_at = now;
           existing.expires_at = parsed.data.expires_at || null;
+          existing.max_access_count = maxAccess;
+          existing.access_count = 0;
+          existing.watermark_enabled = watermarkEnabled;
           return { conflict: false as const, perm: existing, reactivated: true };
         }
         const created = {
@@ -141,6 +161,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           revoked_at: null,
           revoked_by: null,
           expires_at: parsed.data.expires_at || null,
+          max_access_count: maxAccess,
+          access_count: 0,
+          watermark_enabled: watermarkEnabled,
         };
         store.permissions.push(created);
         return { conflict: false as const, perm: created };
@@ -165,6 +188,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           ai_suggested: parsed.data.ai_suggested || false,
           ai_rationale: parsed.data.ai_rationale || null,
           decision: 'human_confirmed',
+          max_access_count: maxAccess,
+          burn_after_read: parsed.data.burn_after_read || false,
+          watermark_enabled: watermarkEnabled,
         },
       });
 

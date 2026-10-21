@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Activity,
-  Search,
   Filter,
   ChevronLeft,
   ChevronRight,
@@ -13,6 +12,9 @@ import {
   Shield,
   Loader2,
   Key,
+  ShieldAlert,
+  RefreshCw,
+  Download,
 } from "lucide-react";
 
 interface AuditEvent {
@@ -55,12 +57,19 @@ export default function AdminAuditPage() {
   const [actionFilter, setActionFilter] = useState("all");
   const [resultFilter, setResultFilter] = useState("all");
   const [verifying, setVerifying] = useState(false);
+  const [tampering, setTampering] = useState(false);
+  const [tamperStatus, setTamperStatus] = useState<string | null>(null);
   const [verificationResult, setVerificationResult] = useState<{
     valid: boolean;
     mismatches: Array<{ id: string; expected: string; actual: string }>;
     verified_at?: string;
   } | null>(null);
   const pageSize = 30;
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  const refreshEvents = useCallback(() => {
+    setRefreshTrigger((prev) => prev + 1);
+  }, []);
 
   async function handleVerifyChain() {
     setVerifying(true);
@@ -81,31 +90,80 @@ export default function AdminAuditPage() {
     }
   }
 
-  const fetchEvents = useCallback(async () => {
-    setLoading(true);
+  async function handleSimulateTamper() {
+    setTampering(true);
     try {
-      const params = new URLSearchParams();
-      params.set("page", page.toString());
-      params.set("pageSize", pageSize.toString());
-      if (actionFilter !== "all") params.set("action", actionFilter);
-      if (resultFilter !== "all") params.set("result", resultFilter);
-
-      const res = await fetch(`/api/admin/audit?${params}`);
+      const res = await fetch("/api/admin/audit/tamper", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "tamper" }),
+      });
       const data = await res.json();
       if (data.success) {
-        setEvents(data.data);
-        setTotal(data.total);
+        setTamperStatus("⚠️ Attack simulated: An audit record's payload was maliciously modified in storage without recalculating hash chain.");
+        await handleVerifyChain();
+        refreshEvents();
       }
     } catch {
       /* ignored */
     } finally {
-      setLoading(false);
+      setTampering(false);
     }
-  }, [page, actionFilter, resultFilter]);
+  }
+
+  async function handleRestoreTamper() {
+    setTampering(true);
+    try {
+      const res = await fetch("/api/admin/audit/tamper", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "restore" }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTamperStatus("✅ Chain healed: Tampered audit event restored to authentic state. Hash chain re-sealed.");
+        await handleVerifyChain();
+        refreshEvents();
+      }
+    } catch {
+      /* ignored */
+    } finally {
+      setTampering(false);
+    }
+  }
 
   useEffect(() => {
-    fetchEvents();
-  }, [fetchEvents]);
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        params.set("page", page.toString());
+        params.set("pageSize", pageSize.toString());
+        if (actionFilter !== "all") params.set("action", actionFilter);
+        if (resultFilter !== "all") params.set("result", resultFilter);
+
+        const res = await fetch(`/api/admin/audit?${params}`);
+        const data = await res.json();
+        if (data.success && !cancelled) {
+          setEvents(data.data);
+          setTotal(data.total);
+        }
+      } catch {
+        /* ignored */
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [page, actionFilter, resultFilter, refreshTrigger, pageSize]);
 
   const totalPages = Math.ceil(total / pageSize);
 
@@ -134,24 +192,35 @@ export default function AdminAuditPage() {
             </p>
           </div>
         </div>
-        <button
-          onClick={handleVerifyChain}
-          disabled={verifying}
-          className="btn btn-primary btn-sm flex-shrink-0"
-          id="verify-audit-chain-btn"
-        >
-          {verifying ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Verifying Chain...
-            </>
-          ) : (
-            <>
-              <Key className="w-4 h-4" />
-              Verify Hash Chain
-            </>
-          )}
-        </button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <a
+            href="/api/admin/audit/export?download=true"
+            className="btn btn-secondary btn-sm flex items-center gap-1.5"
+            download
+            id="export-signed-audit-btn"
+          >
+            <Download className="w-4 h-4" />
+            Export Signed Report
+          </a>
+          <button
+            onClick={handleVerifyChain}
+            disabled={verifying}
+            className="btn btn-primary btn-sm flex-shrink-0"
+            id="verify-audit-chain-btn"
+          >
+            {verifying ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Verifying Chain...
+              </>
+            ) : (
+              <>
+                <Key className="w-4 h-4" />
+                Verify Hash Chain
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Verification result report */}
@@ -185,6 +254,51 @@ export default function AdminAuditPage() {
           </p>
         </div>
       )}
+
+      {/* Security Evaluator Tamper Demo Card */}
+      <div className="card-glass border border-brand-700/20 p-4 mb-6 rounded-xl bg-surface-200">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="badge badge-brand text-[10px] font-bold uppercase tracking-wider">
+                Recruiter & Evaluator Demo
+              </span>
+              <span className="text-xs font-semibold text-[var(--foreground)]">
+                Tamper Attack & Cryptographic Breach Simulator
+              </span>
+            </div>
+            <p className="text-xs text-[var(--muted)] mt-1">
+              Test TrustVault&apos;s live tamper detection. Modify an underlying audit record directly in storage, then observe the SHA-256 chain catch the violation.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap flex-shrink-0">
+            <button
+              onClick={handleSimulateTamper}
+              disabled={tampering}
+              className="btn btn-sm btn-danger flex items-center gap-1.5"
+              id="simulate-tamper-btn"
+            >
+              {tampering ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+              Simulate Tamper Attack
+            </button>
+            <button
+              onClick={handleRestoreTamper}
+              disabled={tampering}
+              className="btn btn-sm btn-secondary flex items-center gap-1.5"
+              id="restore-tamper-btn"
+            >
+              {tampering ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 text-success" />}
+              Restore Chain
+            </button>
+          </div>
+        </div>
+        {tamperStatus && (
+          <div className="mt-3 text-xs p-2.5 rounded-lg bg-[var(--input-bg)] border border-[var(--card-border)] flex items-center gap-2 animate-fade-in">
+            <ShieldAlert className="w-4 h-4 text-brand-700 flex-shrink-0" />
+            <span>{tamperStatus}</span>
+          </div>
+        )}
+      </div>
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3 mb-6">

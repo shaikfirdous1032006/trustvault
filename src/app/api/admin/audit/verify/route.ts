@@ -2,7 +2,8 @@ import { requireRole, AuthorizationError, getRequestMeta } from '@/lib/auth';
 import { verifyAuditChain, logAuditEvent } from '@/lib/audit';
 import { NextRequest, NextResponse } from 'next/server';
 
-export async function POST(request: NextRequest) {
+export async function POST(_request?: NextRequest) {
+  void _request;
   const { ipAddress, userAgent } = await getRequestMeta();
 
   try {
@@ -21,6 +22,7 @@ export async function POST(request: NextRequest) {
         operation: 'audit_chain_verification',
         valid: verificationResult.valid,
         mismatch_count: verificationResult.mismatches.length,
+        first_invalid_event: verificationResult.firstInvalid,
       },
     });
 
@@ -28,6 +30,7 @@ export async function POST(request: NextRequest) {
       success: true,
       valid: verificationResult.valid,
       mismatches: verificationResult.mismatches,
+      first_invalid: verificationResult.firstInvalid,
       verified_at: new Date().toISOString(),
     });
   } catch (err: unknown) {

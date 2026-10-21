@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   FileText,
@@ -9,8 +9,6 @@ import {
   Upload,
   ChevronLeft,
   ChevronRight,
-  Loader2,
-  Trash2,
   Calendar,
   User,
 } from "lucide-react";
@@ -59,34 +57,41 @@ export default function DocumentsPage() {
   const [total, setTotal] = useState(0);
   const pageSize = 12;
 
-  const fetchDocuments = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (search) params.set("search", search);
-      if (category !== "all") params.set("category", category);
-      if (owner) params.set("owner", owner);
-      if (dateFrom) params.set("dateFrom", dateFrom);
-      if (dateTo) params.set("dateTo", dateTo);
-      params.set("page", page.toString());
-      params.set("pageSize", pageSize.toString());
-
-      const res = await fetch(`/api/documents?${params}`);
-      const data = await res.json();
-      if (data.success) {
-        setDocuments(data.data);
-        setTotal(data.total);
-      }
-    } catch {
-      // silently fail
-    } finally {
-      setLoading(false);
-    }
-  }, [search, category, owner, dateFrom, dateTo, page]);
-
   useEffect(() => {
-    fetchDocuments();
-  }, [fetchDocuments]);
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (search) params.set("search", search);
+        if (category !== "all") params.set("category", category);
+        if (owner) params.set("owner", owner);
+        if (dateFrom) params.set("dateFrom", dateFrom);
+        if (dateTo) params.set("dateTo", dateTo);
+        params.set("page", page.toString());
+        params.set("pageSize", pageSize.toString());
+
+        const res = await fetch(`/api/documents?${params}`);
+        const data = await res.json();
+        if (data.success && !cancelled) {
+          setDocuments(data.data);
+          setTotal(data.total);
+        }
+      } catch {
+        // silently fail
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [search, category, owner, dateFrom, dateTo, page, pageSize]);
 
   // Debounce search
   const [searchInput, setSearchInput] = useState("");

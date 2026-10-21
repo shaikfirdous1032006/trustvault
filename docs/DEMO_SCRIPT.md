@@ -97,24 +97,61 @@
 
 ---
 
-### [4:15 – 5:00] Scene 6: Tamper-Evident Audit Trail & Cryptographic Verification
+### [4:15 – 5:00] Scene 6: Tamper-Evident Audit Trail & Signed Checkpoints
 
 **Visual:**
 - While logged in as `admin@example.com`, navigate to `/dashboard/admin/audit`.
-- Display the platform audit table:
-  - Show the `permission_grant` event.
-  - Show the `permission_revoke` event.
-  - Show the `download` (denied) event from our viewer!
-  - Show the `ip_hash` and `user_agent_hash` privacy protections.
-- Click to expand an event's details showing `prev_hash` and `event_hash`.
-- Open terminal and show `tests/api-authorization.test.ts` where database triggers block `UPDATE` and `DELETE`, and where changing any audit field invalidates the SHA-256 hash.
+- Display the platform audit table showing `permission_grant`, `permission_revoke`, and the viewer's `denied` download attempt.
+- Click **Verify Hash Chain**: green banner appears confirming 100% cryptographic soundness.
+- Click **Export Signed Report**: downloads JSON report with HMAC-SHA256 checkpoint signature.
+- Click **Simulate Storage Tampering**: a malicious payload alteration is injected into the database; verify chain re-runs and immediately catches the exact tampered record!
 
 **Audio / Voiceover:**
 > "Finally, let's examine TrustVault's **tamper-evident audit trail**. 
 > 
 > Every allowed action and, crucially, **every denied attempt** is logged with actor identity, hashed IP, and canonical details. Every single event is cryptographically linked to the previous event using a SHA-256 hash chain.
 > 
-> The table is strictly append-only. Application roles have UPDATE and DELETE revoked, and PostgreSQL database triggers immediately raise an exception if anyone attempts to modify or truncate historical records. If an attacker attempts to alter any byte in an audit record, the cryptographic hash chain breaks and tampering is instantly exposed.
+> When our admin clicks 'Verify Hash Chain', the server recomputes every event from genesis to head. If an attacker attempts to alter any byte in an audit record, the cryptographic hash chain breaks and tampering is instantly exposed."
+
+---
+
+### [5:00 – 6:00] Scene 7: AI Privacy Shield & Redaction (Owner Flow)
+
+**Visual:**
+- Switch to Owner window, navigate to `/dashboard/privacy`.
+- Select `Q3_Financial_Audit.txt`.
+- Click **Scan for Sensitive Data**.
+- UI highlights findings with confidence scores: SSN (`[REDACTED_SSN_••••6789]`), Payment Cards (`[REDACTED_CARD_••••0366]`), API keys, and passwords.
+- Owner reviews the findings, keeps all selected, and clicks **Generate Redacted Copy**.
+- TrustVault mints `[Redacted] Q3 2026 Financial Audit & Forecast`. Original file is 100% unaltered.
+
+**Audio / Voiceover:**
+> "Now let's examine the **AI Privacy Shield**. When an owner wants to share a document externally, they can scan it for sensitive data. 
 > 
-> That is TrustVault — defense in depth, zero-trust authorization, and verifiable integrity. Thank you."
+> The detector uses deterministic pattern recognizers and Luhn checksum validation to find SSNs, credit cards, API tokens, and plaintext passwords. 
+> 
+> Crucially, the system enforces **Human-in-the-Loop** verification: the owner reviews the proposed replacements, confirms the redaction, and TrustVault mints a separate, protected copy. The original document remains completely untouched in immutable storage."
+
+---
+
+### [6:00 – 7:00] Scene 8: Threat Alerts & Policy Simulator (Admin Flow)
+
+**Visual:**
+- Switch back to Admin window, navigate to `/dashboard/admin/alerts`.
+- View real-time threat detection alerts: `Repeated Denied Document Access` and `Credential Stuffing`.
+- Click **Restrict Actor Access** on the attacker: 15-minute temporary restriction is applied immediately.
+- Navigate to `/dashboard/admin/simulator`.
+- Select `viewer@example.com` and `Q3_Financial_Audit.txt`.
+- Set proposed action: `Elevate to Edit Access`.
+- Click **Simulate Policy Impact**.
+- Visual diff shows access elevation, Zero-Trust decision outcome, and warning alerts: *"Viewer role elevated to edit privileges on confidential document"*.
+
+**Audio / Voiceover:**
+> "To close, let's look at **Threat Detection & Policy Simulation**.
+> 
+> Our detection pipeline constantly evaluates audit events for brute force, IDOR enumeration, and mass download bursts. When an attack is flagged, the administrator can investigate and temporarily restrict the actor with a single click.
+> 
+> And before making any permission change, administrators can use the **Access Policy Simulator** to run 'What-If' scenarios through our Zero-Trust engine, projecting access changes and risk consequences before deployment.
+> 
+> That is TrustVault — defense in depth, zero-trust authorization, explainable threat intelligence, and verifiable audit integrity. Thank you."
 

@@ -1,7 +1,6 @@
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import { getAuthenticatedUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import type { User } from "@/lib/types";
 import {
   FileText,
   Users,
@@ -12,13 +11,23 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
-  Info,
+  Sparkles,
+  ShieldAlert,
+  Sliders,
 } from "lucide-react";
 import Link from "next/link";
 
 export const metadata = {
   title: "Dashboard — TrustVault",
 };
+
+interface RecentDoc {
+  id: string;
+  title: string;
+  category: string;
+  created_at: string;
+  owner?: { full_name?: string | null; email?: string } | { full_name?: string | null; email?: string }[];
+}
 
 export default async function DashboardPage() {
   const user = await getAuthenticatedUser();
@@ -27,7 +36,7 @@ export default async function DashboardPage() {
   const isConfigured = isSupabaseConfigured();
 
   let docCount = 0;
-  let recentDocs: any[] = [];
+  let recentDocs: RecentDoc[] = [];
   let recentAudit: Array<{
     id: string;
     action: string;
@@ -167,6 +176,123 @@ export default async function DashboardPage() {
           value={recentAudit.length > 0 ? `${recentAudit.length} recent` : "—"}
           color="success"
         />
+      </div>
+
+      {/* Zero-Trust Platform Modules Quick Access */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <Link
+          href="/dashboard/privacy"
+          className="card p-5 border hover:border-brand-500/50 transition group flex flex-col justify-between"
+        >
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="p-2 rounded-lg bg-brand-500/10 text-brand-400">
+                <Sparkles className="w-5 h-5" />
+              </span>
+              <span className="badge badge-brand text-xs">AI Security</span>
+            </div>
+            <h3 className="text-base font-bold group-hover:text-brand-400 transition">
+              AI Privacy Shield
+            </h3>
+            <p className="text-xs text-[var(--muted)] mt-1">
+              Automated PII detection, SSN/Card pattern redaction, and owner-approved asset generation.
+            </p>
+          </div>
+          <div className="mt-4 flex items-center text-xs font-semibold text-brand-400 gap-1">
+            Open Privacy Shield <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+          </div>
+        </Link>
+
+        {user.role === "admin" ? (
+          <Link
+            href="/dashboard/admin/alerts"
+            className="card p-5 border hover:border-red-500/50 transition group flex flex-col justify-between"
+          >
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="p-2 rounded-lg bg-red-500/10 text-red-400">
+                  <ShieldAlert className="w-5 h-5" />
+                </span>
+                <span className="badge badge-danger text-xs">Active Monitoring</span>
+              </div>
+              <h3 className="text-base font-bold group-hover:text-red-400 transition">
+                Threat Detection & Alerts
+              </h3>
+              <p className="text-xs text-[var(--muted)] mt-1">
+                Real-time anomaly rules detecting brute force, IDOR enumeration, and mass download bursts.
+              </p>
+            </div>
+            <div className="mt-4 flex items-center text-xs font-semibold text-red-400 gap-1">
+              Review Security Alerts <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+            </div>
+          </Link>
+        ) : (
+          <div className="card p-5 border opacity-75 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
+                  <Shield className="w-5 h-5" />
+                </span>
+                <span className="badge badge-success text-xs">Enforced</span>
+              </div>
+              <h3 className="text-base font-bold">Zero-Trust Authorization</h3>
+              <p className="text-xs text-[var(--muted)] mt-1">
+                Authoritative per-document permissions, time-bound grants, and least-privilege enforcement.
+              </p>
+            </div>
+            <div className="mt-4 text-xs text-[var(--muted)] font-medium">
+              Active Protection
+            </div>
+          </div>
+        )}
+
+        {user.role === "admin" ? (
+          <Link
+            href="/dashboard/admin/simulator"
+            className="card p-5 border hover:border-purple-500/50 transition group flex flex-col justify-between"
+          >
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="p-2 rounded-lg bg-purple-500/10 text-purple-400">
+                  <Sliders className="w-5 h-5" />
+                </span>
+                <span className="badge badge-neutral text-xs">Simulator</span>
+              </div>
+              <h3 className="text-base font-bold group-hover:text-purple-400 transition">
+                Policy Simulator
+              </h3>
+              <p className="text-xs text-[var(--muted)] mt-1">
+                Pre-flight &quot;What-If&quot; policy preview projecting access changes and risk consequences.
+              </p>
+            </div>
+            <div className="mt-4 flex items-center text-xs font-semibold text-purple-400 gap-1">
+              Simulate Policies <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+            </div>
+          </Link>
+        ) : (
+          <Link
+            href="/dashboard/documents"
+            className="card p-5 border hover:border-brand-500/50 transition group flex flex-col justify-between"
+          >
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="p-2 rounded-lg bg-brand-500/10 text-brand-400">
+                  <FileText className="w-5 h-5" />
+                </span>
+                <span className="badge badge-brand text-xs">Vault</span>
+              </div>
+              <h3 className="text-base font-bold group-hover:text-brand-400 transition">
+                Document Library
+              </h3>
+              <p className="text-xs text-[var(--muted)] mt-1">
+                Browse confidential files, verify access permissions, and preview authorized content.
+              </p>
+            </div>
+            <div className="mt-4 flex items-center text-xs font-semibold text-brand-400 gap-1">
+              Browse Vault <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+            </div>
+          </Link>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

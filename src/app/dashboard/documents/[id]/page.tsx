@@ -25,6 +25,11 @@ import {
   HardDrive,
   User,
   Sparkles,
+  Flame,
+  ShieldCheck,
+  Link2,
+  Copy,
+  Ban,
 } from "lucide-react";
 
 interface DocOwner {
@@ -62,6 +67,9 @@ interface Permission {
   revoked_at: string | null;
   revoked_by: string | null;
   expires_at: string | null;
+  max_access_count?: number | null;
+  access_count?: number;
+  watermark_enabled?: boolean;
   user: { id: string; email: string; full_name: string | null };
   grantor: { id: string; email: string; full_name: string | null };
 }
@@ -86,7 +94,23 @@ interface AuditEvent {
   details_jsonb: Record<string, unknown>;
 }
 
-type Tab = "details" | "permissions" | "versions" | "audit";
+interface ShareLinkView {
+  id: string;
+  document_id: string;
+  label: string | null;
+  created_at: string;
+  expires_at: string;
+  revoked_at: string | null;
+  revoked_by: string | null;
+  access_count: number;
+  max_access_count: number | null;
+  last_accessed_at: string | null;
+  allow_download: boolean;
+  watermark_enabled: boolean;
+  is_active: boolean;
+}
+
+type Tab = "details" | "permissions" | "share" | "versions" | "audit" | "ai_assistant";
 
 export default function DocumentDetailPage({
   params: paramsPromise,
@@ -104,6 +128,10 @@ export default function DocumentDetailPage({
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [permLoading, setPermLoading] = useState(false);
   const [showGrantModal, setShowGrantModal] = useState(false);
+
+  // Share link state
+  const [shareLinks, setShareLinks] = useState<ShareLinkView[]>([]);
+  const [shareLoading, setShareLoading] = useState(false);
 
   // Versions state
   const [versions, setVersions] = useState<Version[]>([]);
@@ -152,8 +180,31 @@ export default function DocumentDetailPage({
   }, [docId]);
 
   useEffect(() => {
-    fetchDocument();
-  }, [fetchDocument]);
+    if (!docId) return;
+    let cancelled = false;
+
+    async function loadDoc() {
+      try {
+        const res = await fetch(`/api/documents/${docId}`);
+        const data = await res.json();
+        if (cancelled) return;
+        if (data.success) {
+          setDoc(data.data);
+        } else {
+          setError(data.error || "Failed to load document");
+        }
+      } catch {
+        if (!cancelled) setError("Network error");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void loadDoc();
+    return () => {
+      cancelled = true;
+    };
+  }, [docId]);
 
   const fetchPermissions = useCallback(async () => {
     if (!docId) return;
@@ -166,6 +217,20 @@ export default function DocumentDetailPage({
       /* ignored */
     } finally {
       setPermLoading(false);
+    }
+  }, [docId]);
+
+  const fetchShareLinks = useCallback(async () => {
+    if (!docId) return;
+    setShareLoading(true);
+    try {
+      const res = await fetch(`/api/documents/${docId}/share-links`);
+      const data = await res.json();
+      if (data.success) setShareLinks(data.data);
+    } catch {
+      /* ignored */
+    } finally {
+      setShareLoading(false);
     }
   }, [docId]);
 
@@ -183,25 +248,59 @@ export default function DocumentDetailPage({
     }
   }, [docId]);
 
-  const fetchAudit = useCallback(async () => {
-    if (!docId) return;
-    setAuditLoading(true);
-    try {
-      const res = await fetch(`/api/documents/${docId}/audit`);
-      const data = await res.json();
-      if (data.success) setAuditEvents(data.data);
-    } catch {
-      /* ignored */
-    } finally {
-      setAuditLoading(false);
-    }
-  }, [docId]);
-
   useEffect(() => {
-    if (activeTab === "permissions") fetchPermissions();
-    if (activeTab === "versions") fetchVersions();
-    if (activeTab === "audit") fetchAudit();
-  }, [activeTab, fetchPermissions, fetchVersions, fetchAudit]);
+    if (!docId) return;
+    let cancelled = false;
+
+    async function loadTabData() {
+      if (activeTab === "permissions") {
+        try {
+          const res = await fetch(`/api/documents/${docId}/permissions`);
+          const data = await res.json();
+          if (data.success && !cancelled) setPermissions(data.data);
+        } catch {
+          /* ignored */
+        } finally {
+          if (!cancelled) setPermLoading(false);
+        }
+      } else if (activeTab === "share") {
+        try {
+          const res = await fetch(`/api/documents/${docId}/share-links`);
+          const data = await res.json();
+          if (data.success && !cancelled) setShareLinks(data.data);
+        } catch {
+          /* ignored */
+        } finally {
+          if (!cancelled) setShareLoading(false);
+        }
+      } else if (activeTab === "versions") {
+        try {
+          const res = await fetch(`/api/documents/${docId}/versions`);
+          const data = await res.json();
+          if (data.success && !cancelled) setVersions(data.data);
+        } catch {
+          /* ignored */
+        } finally {
+          if (!cancelled) setVerLoading(false);
+        }
+      } else if (activeTab === "audit") {
+        try {
+          const res = await fetch(`/api/documents/${docId}/audit`);
+          const data = await res.json();
+          if (data.success && !cancelled) setAuditEvents(data.data);
+        } catch {
+          /* ignored */
+        } finally {
+          if (!cancelled) setAuditLoading(false);
+        }
+      }
+    }
+
+    void loadTabData();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, docId]);
 
   async function handleDownload() {
     if (!docId) return;
@@ -312,6 +411,11 @@ export default function DocumentDetailPage({
             label: "Permissions",
             icon: <Shield className="w-4 h-4" />,
           },
+          {
+            key: "share" as const,
+            label: "Share links",
+            icon: <Link2 className="w-4 h-4" />,
+          },
         ]
       : []),
     { key: "versions", label: "Versions", icon: <Clock className="w-4 h-4" /> },
@@ -324,6 +428,11 @@ export default function DocumentDetailPage({
           },
         ]
       : []),
+    {
+      key: "ai_assistant" as const,
+      label: "AI Assistant",
+      icon: <Sparkles className="w-4 h-4 text-brand-700" />,
+    },
   ];
 
   return (
@@ -366,13 +475,15 @@ export default function DocumentDetailPage({
             )}
             Download
           </button>
-          <button
-            onClick={() => setShowDeleteConfirm(true)}
-            className="btn btn-danger btn-sm"
-            id="delete-document-btn"
-          >
-            <Trash2 className="w-4 h-4" /> Delete
-          </button>
+          {canDelete && (
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="btn btn-danger btn-sm"
+              id="delete-document-btn"
+            >
+              <Trash2 className="w-4 h-4" /> Delete
+            </button>
+          )}
         </div>
       </div>
 
@@ -402,18 +513,27 @@ export default function DocumentDetailPage({
         <PermissionsTab
           permissions={permissions}
           loading={permLoading}
-          docId={doc.id}
           isOwner={true}
           onRevoke={handleRevokePermission}
           onGrant={() => setShowGrantModal(true)}
-          onRefresh={fetchPermissions}
+        />
+      )}
+      {activeTab === "share" && (
+        <ShareLinksTab
+          links={shareLinks}
+          loading={shareLoading}
+          docId={doc.id}
+          onRefresh={fetchShareLinks}
         />
       )}
       {activeTab === "versions" && (
         <VersionsTab versions={versions} loading={verLoading} docId={doc.id} onRefresh={fetchVersions} />
       )}
       {activeTab === "audit" && (
-        <AuditTab events={auditEvents} loading={auditLoading} />
+        <AuditTab events={auditEvents} loading={auditLoading} docId={doc.id} />
+      )}
+      {activeTab === "ai_assistant" && (
+        <AIAssistantTab docId={doc.id} docTitle={doc.title} />
       )}
 
       {/* Grant Permission Modal */}
@@ -621,6 +741,38 @@ function DetailsTab({
               <p className="text-sm">{doc.description}</p>
             </div>
           )}
+
+          {/* Forensic Disclosure Watermark Preview Box */}
+          <div className="sm:col-span-2 mt-4 relative overflow-hidden p-4 rounded-xl border border-brand-700/25 bg-surface-200">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-brand-700" />
+                <span className="text-xs font-bold uppercase tracking-wider text-brand-700">
+                  Forensic Watermark Protection Active
+                </span>
+              </div>
+              <span className="badge badge-brand text-[10px]">Tamper-Proof Disclosure</span>
+            </div>
+
+            <div className="relative p-4 rounded-lg bg-[var(--card-bg)] border border-[var(--card-border)] overflow-hidden">
+              <div className="absolute inset-0 pointer-events-none select-none flex items-center justify-center opacity-10 rotate-[-15deg] text-xs font-mono font-bold uppercase tracking-widest text-center whitespace-pre-wrap leading-loose">
+                {`TRUSTVAULT SECURE DISCLOSURE • ${doc.checksum.slice(0, 16)} • RECIPIENT TRACED`}
+              </div>
+
+              <div className="relative z-10 font-mono text-xs text-[var(--foreground)] opacity-90 space-y-1.5">
+                <div className="text-[11px] text-[var(--muted)] border-b border-[var(--card-border)] pb-2 flex items-center justify-between">
+                  <span>Container: {doc.file_name}</span>
+                  <span>SHA-256: {doc.checksum.slice(0, 12)}...</span>
+                </div>
+                <p className="text-[11px] text-brand-800">
+                  🛡️ Forensic Attribution: Download stream automatically stamps recipient identity, UTC timestamp, and leak-tracing cryptographic fingerprint.
+                </p>
+                <p className="text-[11px] text-[var(--muted)]">
+                  Cryptographic Integrity Root: <span className="font-mono text-brand-700">{doc.checksum}</span>
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -651,19 +803,15 @@ function InfoRow({
 function PermissionsTab({
   permissions,
   loading,
-  docId,
   isOwner,
   onRevoke,
   onGrant,
-  onRefresh,
 }: {
   permissions: Permission[];
   loading: boolean;
-  docId: string;
   isOwner: boolean;
   onRevoke: (id: string) => void;
   onGrant: () => void;
-  onRefresh: () => void;
 }) {
   const activePermissions = permissions.filter((p) => !p.revoked_at);
   const revokedPermissions = permissions.filter((p) => p.revoked_at);
@@ -713,7 +861,7 @@ function PermissionsTab({
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span
                     className={`badge ${
                       perm.permission_level === "edit"
@@ -728,6 +876,27 @@ function PermissionsTab({
                     )}
                     {perm.permission_level}
                   </span>
+
+                  {perm.max_access_count === 1 && (
+                    <span className="badge badge-warning text-[10px] inline-flex items-center gap-1 font-medium">
+                      <Flame className="w-3 h-3 text-amber-600" />
+                      Single-Use ({perm.access_count || 0}/1)
+                    </span>
+                  )}
+
+                  {Boolean(perm.max_access_count && perm.max_access_count > 1) && (
+                    <span className="badge badge-neutral text-[10px]">
+                      Access: {perm.access_count || 0}/{perm.max_access_count}
+                    </span>
+                  )}
+
+                  {perm.watermark_enabled !== false && (
+                    <span className="badge badge-brand text-[10px] inline-flex items-center gap-1">
+                      <ShieldCheck className="w-3 h-3 text-brand-700" />
+                      Watermarked
+                    </span>
+                  )}
+
                   {perm.expires_at && (
                     <span className="text-xs text-[var(--muted)]">
                       Expires {new Date(perm.expires_at).toLocaleDateString()}
@@ -776,6 +945,330 @@ function PermissionsTab({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function toLocalInputValue(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
+    date.getHours()
+  )}:${pad(date.getMinutes())}`;
+}
+
+function ShareLinksTab({
+  links,
+  loading,
+  docId,
+  onRefresh,
+}: {
+  links: ShareLinkView[];
+  loading: boolean;
+  docId: string;
+  onRefresh: () => void;
+}) {
+  const [label, setLabel] = useState("");
+  const [expiresAt, setExpiresAt] = useState(() => {
+    const target = new Date();
+    target.setDate(target.getDate() + 7);
+    return toLocalInputValue(target);
+  });
+  const [maxViews, setMaxViews] = useState("");
+  const [allowDownload, setAllowDownload] = useState(true);
+  const [watermark, setWatermark] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [issued, setIssued] = useState<{ id: string; url: string } | null>(null);
+  const [notice, setNotice] = useState("");
+  const [revokingId, setRevokingId] = useState<string | null>(null);
+
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    setFormError("");
+    setNotice("");
+
+    const expiryMs = Date.parse(expiresAt);
+    if (!Number.isFinite(expiryMs)) {
+      setFormError("Choose when this link should stop working.");
+      return;
+    }
+    if (expiryMs <= Date.now()) {
+      setFormError("The expiry must be in the future.");
+      return;
+    }
+
+    setCreating(true);
+    try {
+      const res = await fetch(`/api/documents/${docId}/share-links`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          label: label.trim() || null,
+          expires_at: new Date(expiryMs).toISOString(),
+          max_views: maxViews.trim() ? Number(maxViews) : null,
+          allow_download: allowDownload,
+          watermark_enabled: watermark,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) {
+        setFormError(data?.error || `Could not create the link (server returned ${res.status}).`);
+        return;
+      }
+      setIssued({ id: data.data.link.id, url: data.data.url });
+      setLabel("");
+      setMaxViews("");
+      onRefresh();
+    } catch {
+      setFormError("Network error — the link was not created.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function handleRevoke(id: string) {
+    setRevokingId(id);
+    setNotice("");
+    try {
+      const res = await fetch(`/api/documents/${docId}/share-links/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "revoke" }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) {
+        setNotice(data?.error || "Revocation failed.");
+      } else {
+        setNotice("Link revoked. It stops working on the next request.");
+      }
+      onRefresh();
+    } catch {
+      setNotice("Network error — the link was not revoked.");
+    } finally {
+      setRevokingId(null);
+    }
+  }
+
+  async function copyIssued() {
+    if (!issued) return;
+    try {
+      await navigator.clipboard.writeText(issued.url);
+      setNotice("Link copied.");
+    } catch {
+      setNotice("Your browser blocked the clipboard. Select the address and copy it manually.");
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <form onSubmit={handleCreate} className="card p-6 space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-[var(--muted)]">
+            Issue a share link
+          </h2>
+          <p className="text-xs text-[var(--muted)] mt-1">
+            A link opens this document for one anonymous reader until it expires or you revoke it. It
+            never grants edit rights — those still need a named account.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label htmlFor="share-label" className="block text-sm font-medium mb-1">
+              Issued to <span className="text-[var(--muted)] font-normal">(optional)</span>
+            </label>
+            <input
+              id="share-label"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              maxLength={200}
+              placeholder="e.g. external auditor"
+              className="input"
+            />
+          </div>
+          <div>
+            <label htmlFor="share-expiry" className="block text-sm font-medium mb-1">
+              Expires
+            </label>
+            <input
+              id="share-expiry"
+              type="datetime-local"
+              value={expiresAt}
+              onChange={(e) => setExpiresAt(e.target.value)}
+              required
+              className="input"
+            />
+          </div>
+          <div>
+            <label htmlFor="share-views" className="block text-sm font-medium mb-1">
+              Maximum views{" "}
+              <span className="text-[var(--muted)] font-normal">(blank = unlimited)</span>
+            </label>
+            <input
+              id="share-views"
+              type="number"
+              min={1}
+              max={1000}
+              value={maxViews}
+              onChange={(e) => setMaxViews(e.target.value)}
+              placeholder="unlimited"
+              className="input"
+            />
+          </div>
+          <div className="flex flex-col justify-end gap-2 pb-1">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={allowDownload}
+                onChange={(e) => setAllowDownload(e.target.checked)}
+              />
+              Allow download
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={watermark}
+                onChange={(e) => setWatermark(e.target.checked)}
+              />
+              Watermark text files
+            </label>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button type="submit" disabled={creating} className="btn btn-primary btn-sm">
+            {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
+            Create link
+          </button>
+          {formError && (
+            <span role="alert" className="text-sm text-danger">
+              {formError}
+            </span>
+          )}
+        </div>
+
+        {issued && (
+          <div className="rounded-lg border border-brand-700/30 bg-brand-700/5 p-4 space-y-2">
+            <div className="text-sm font-medium">This URL is shown once and cannot be recovered.</div>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 min-w-0 break-all text-xs bg-[var(--background)] rounded px-2 py-1">
+                {issued.url}
+              </code>
+              <button
+                type="button"
+                onClick={copyIssued}
+                className="btn btn-secondary btn-sm flex-shrink-0"
+              >
+                <Copy className="w-4 h-4" />
+                Copy
+              </button>
+            </div>
+            <p className="text-xs text-[var(--muted)]">
+              TrustVault keeps only a SHA-256 digest of the token, so the link exists only in your
+              message to the recipient. Link id {issued.id}.
+            </p>
+          </div>
+        )}
+      </form>
+
+      <div className="card p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-[var(--muted)]">
+            Issued links ({links.length})
+          </h2>
+          <button type="button" onClick={onRefresh} className="btn btn-secondary btn-sm">
+            Refresh
+          </button>
+        </div>
+
+        {notice && (
+          <div role="status" className="text-sm mb-3 text-[var(--muted)]">
+            {notice}
+          </div>
+        )}
+
+        {loading && <div className="skeleton h-16 w-full" />}
+
+        {!loading && links.length === 0 && (
+          <p className="text-sm text-[var(--muted)]">
+            No links issued. Nobody outside the permission list can open this document.
+          </p>
+        )}
+
+        {!loading && links.length > 0 && (
+          <ul className="space-y-3">
+            {links.map((link) => {
+              const expired = !link.is_active && !link.revoked_at;
+              const status = link.revoked_at ? "revoked" : expired ? "expired" : "active";
+              return (
+                <li
+                  key={link.id}
+                  className="rounded-lg border border-[var(--card-border)] p-4 space-y-2"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium truncate">
+                        {link.label || <span className="text-[var(--muted)]">unlabelled</span>}
+                      </div>
+                      <div className="text-xs text-[var(--muted)] mt-0.5 font-mono truncate">
+                        {link.id}
+                      </div>
+                    </div>
+                    <span
+                      className={`badge text-xs flex-shrink-0 ${
+                        status === "active"
+                          ? "badge-brand"
+                          : status === "revoked"
+                            ? "badge-danger"
+                            : "badge-neutral"
+                      }`}
+                    >
+                      {status}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-[var(--muted)]">
+                    <span>expires {new Date(link.expires_at).toLocaleString()}</span>
+                    <span>
+                      views {link.access_count}
+                      {link.max_access_count !== null ? `/${link.max_access_count}` : ""}
+                    </span>
+                    <span>
+                      last read{" "}
+                      {link.last_accessed_at
+                        ? new Date(link.last_accessed_at).toLocaleString()
+                        : "never"}
+                    </span>
+                    <span>{link.allow_download ? "download allowed" : "view only"}</span>
+                    {link.revoked_at && (
+                      <span>
+                        revoked {new Date(link.revoked_at).toLocaleString()} by{" "}
+                        {link.revoked_by || "unknown"}
+                      </span>
+                    )}
+                  </div>
+
+                  {status === "active" && (
+                    <button
+                      type="button"
+                      onClick={() => handleRevoke(link.id)}
+                      disabled={revokingId === link.id}
+                      className="btn btn-danger btn-sm"
+                    >
+                      {revokingId === link.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Ban className="w-4 h-4" />
+                      )}
+                      Revoke now
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }
@@ -947,9 +1440,11 @@ function VersionsTab({
 function AuditTab({
   events,
   loading,
+  docId,
 }: {
   events: AuditEvent[];
   loading: boolean;
+  docId: string;
 }) {
   if (loading) {
     return (
@@ -963,10 +1458,21 @@ function AuditTab({
 
   return (
     <div className="card animate-fade-in">
-      <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
-        <Activity className="w-5 h-5 text-brand-700" />
-        Audit Trail ({events.length} events)
-      </h3>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h3 className="text-lg font-semibold flex items-center gap-2">
+          <Activity className="w-5 h-5 text-brand-700" />
+          Audit Trail ({events.length} events)
+        </h3>
+        <a
+          href={`/api/documents/${docId}/certificate?download=true`}
+          download
+          className="btn btn-secondary btn-sm flex items-center gap-1.5 text-xs font-semibold"
+          id="export-compliance-certificate-btn"
+        >
+          <ShieldCheck className="w-4 h-4 text-brand-700" />
+          Export Compliance Certificate
+        </a>
+      </div>
 
       {events.length > 0 ? (
         <div className="table-container">
@@ -1052,6 +1558,9 @@ function GrantPermissionModal({
   const [expiresAt, setExpiresAt] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [burnAfterRead, setBurnAfterRead] = useState(false);
+  const [maxAccessCount, setMaxAccessCount] = useState<number | "">("");
+  const [watermarkEnabled, setWatermarkEnabled] = useState(true);
   const [aiSuggested, setAiSuggested] = useState(false);
   const [aiRationale, setAiRationale] = useState("");
   const [aiExpanded, setAiExpanded] = useState(false);
@@ -1089,7 +1598,10 @@ function GrantPermissionModal({
         body: JSON.stringify({
           user_email: email,
           permission_level: level,
-          expires_at: expiresAt || undefined,
+          expires_at: expiresAt ? new Date(expiresAt).toISOString() : undefined,
+          burn_after_read: burnAfterRead,
+          max_access_count: burnAfterRead ? 1 : (typeof maxAccessCount === "number" ? maxAccessCount : undefined),
+          watermark_enabled: watermarkEnabled,
           ai_suggested: aiSuggested,
           ai_rationale: aiRationale || undefined,
         }),
@@ -1111,10 +1623,13 @@ function GrantPermissionModal({
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold flex items-center gap-2">
-            <Shield className="w-5 h-5 text-brand-400" />
-            Grant Access
-          </h3>
+          <div>
+            <h3 className="text-lg font-bold flex items-center gap-2">
+              <Shield className="w-5 h-5 text-brand-400" />
+              Grant Access
+            </h3>
+            <p className="text-xs text-[var(--muted)] mt-0.5 truncate">{docTitle}</p>
+          </div>
           <button onClick={onClose} className="btn btn-ghost btn-sm">
             <X className="w-4 h-4" />
           </button>
@@ -1223,6 +1738,64 @@ function GrantPermissionModal({
             />
           </div>
 
+          {/* Ephemeral Access & Forensic Watermark Controls */}
+          <div className="p-3.5 rounded-xl bg-surface-200 border border-brand-700/20 space-y-3">
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={burnAfterRead}
+                onChange={(e) => {
+                  setBurnAfterRead(e.target.checked);
+                  if (e.target.checked) setMaxAccessCount(1);
+                }}
+                className="mt-0.5 accent-brand-700"
+                id="grant-burn-after-read"
+              />
+              <div>
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--foreground)]">
+                  <Flame className="w-4 h-4 text-amber-600" />
+                  Burn After Reading (Single-Use Ephemeral Grant)
+                </div>
+                <p className="text-[11px] text-[var(--muted)] leading-relaxed mt-0.5">
+                  Permission automatically revokes immediately after the recipient downloads or inspects the document once.
+                </p>
+              </div>
+            </label>
+
+            {!burnAfterRead && (
+              <div className="pt-2.5 border-t border-brand-700/15">
+                <label className="block text-xs font-medium mb-1 text-[var(--muted)]">
+                  Max Access Limit (Optional Count)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  value={maxAccessCount}
+                  onChange={(e) => setMaxAccessCount(e.target.value ? parseInt(e.target.value, 10) : "")}
+                  placeholder="e.g. 3 (leave blank for unlimited)"
+                  className="input text-xs py-1.5"
+                  id="grant-max-access-count"
+                />
+              </div>
+            )}
+
+            <div className="pt-2.5 border-t border-brand-700/15">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={watermarkEnabled}
+                  onChange={(e) => setWatermarkEnabled(e.target.checked)}
+                  className="accent-brand-700"
+                  id="grant-watermark-enabled"
+                />
+                <span className="text-xs font-medium flex items-center gap-1 text-[var(--foreground)]">
+                  <ShieldCheck className="w-3.5 h-3.5 text-brand-700" />
+                  Enforce Dynamic Forensic Watermarking on Download
+                </span>
+              </label>
+            </div>
+          </div>
+
           <button
             type="submit"
             disabled={loading || !email}
@@ -1268,3 +1841,160 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
+
+function AIAssistantTab({ docId, docTitle }: { docId: string; docTitle: string }) {
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<{
+    answer: string;
+    summary?: string;
+    citations: Array<{ lineStart: number; lineEnd: number; textSnippet: string }>;
+    groundedConfidence: number;
+    promptInjectionDetected: boolean;
+    model: string;
+  } | null>(null);
+
+  async function handleAsk(promptText?: string) {
+    const q = (promptText || query).trim();
+    if (!q) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/documents/${docId}/ai-assistant`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: q }),
+      });
+      const data = await res.json();
+      if (data.success && data.data) {
+        setResult(data.data);
+      } else {
+        setError(data.error || "Failed to process query");
+      }
+    } catch {
+      setError("Network error communicating with AI Assistant service");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="card space-y-6">
+      <div className="flex items-start justify-between border-b border-[var(--card-border)] pb-4">
+        <div>
+          <h2 className="text-lg font-bold flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-brand-700" />
+            Document AI Assistant & Grounded Passage Analysis
+          </h2>
+          <p className="text-sm text-[var(--muted)]">
+            Ask questions or summarize &quot;{docTitle}&quot;. All answers are strictly grounded in document content with line citations and prompt injection protection.
+          </p>
+        </div>
+        <span className="badge badge-brand text-xs font-mono">Zero-Trust Guarded</span>
+      </div>
+
+      {/* Suggested prompts */}
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={() => { setQuery("Summarize this document"); handleAsk("Summarize this document"); }}
+          disabled={loading}
+          className="btn btn-secondary btn-sm text-xs"
+        >
+          ✨ Summarize Document
+        </button>
+        <button
+          onClick={() => { setQuery("What are the key terms and security requirements?"); handleAsk("What are the key terms and security requirements?"); }}
+          disabled={loading}
+          className="btn btn-secondary btn-sm text-xs"
+        >
+          🛡️ Key Requirements
+        </button>
+        <button
+          onClick={() => { setQuery("Are there sensitive credentials or dates mentioned?"); handleAsk("Are there sensitive credentials or dates mentioned?"); }}
+          disabled={loading}
+          className="btn btn-secondary btn-sm text-xs"
+        >
+          🔍 Sensitive Data Check
+        </button>
+      </div>
+
+      {/* Input */}
+      <form
+        onSubmit={(e) => { e.preventDefault(); handleAsk(); }}
+        className="flex gap-2"
+      >
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Ask a question about this document..."
+          className="input flex-1"
+          disabled={loading}
+        />
+        <button
+          type="submit"
+          disabled={loading || !query.trim()}
+          className="btn btn-primary"
+        >
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+          Ask Assistant
+        </button>
+      </form>
+
+      {error && (
+        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 text-sm flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {result && (
+        <div className="space-y-4 pt-2">
+          {result.promptInjectionDetected && (
+            <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 text-sm flex items-center gap-2">
+              <Ban className="w-4 h-4 flex-shrink-0" />
+              <span><strong>Adversarial Input Blocked:</strong> Attempted prompt injection was quarantined. Security alert logged.</span>
+            </div>
+          )}
+
+          <div className="p-4 rounded-xl bg-[var(--background)] border border-[var(--card-border)] space-y-3">
+            <div className="flex items-center justify-between text-xs text-[var(--muted)] border-b border-[var(--card-border)] pb-2">
+              <span className="font-mono">Engine: {result.model}</span>
+              <span className="flex items-center gap-1 font-semibold text-emerald-400">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Confidence: {Math.round(result.groundedConfidence * 100)}%
+              </span>
+            </div>
+
+            <div className="text-sm text-[var(--foreground)] whitespace-pre-wrap leading-relaxed">
+              {result.answer}
+            </div>
+
+            {result.citations.length > 0 && (
+              <div className="mt-4 pt-3 border-t border-[var(--card-border)]">
+                <h4 className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider mb-2">
+                  Verified Source Citations ({result.citations.length})
+                </h4>
+                <div className="space-y-1.5">
+                  {result.citations.map((c, i) => (
+                    <div
+                      key={i}
+                      className="text-xs p-2 rounded bg-brand-700/5 border border-brand-700/20 text-[var(--foreground)] flex items-start gap-2"
+                    >
+                      <span className="badge badge-brand text-[10px] px-1.5 py-0.5 whitespace-nowrap">
+                        Line {c.lineStart}
+                      </span>
+                      <span className="font-mono text-xs opacity-90">&quot;{c.textSnippet}&quot;</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+

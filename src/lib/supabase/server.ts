@@ -1,4 +1,5 @@
 import { createServerClient } from '@supabase/ssr';
+import { createClient as createSupabaseJsClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 
 export function isSupabaseConfigured(): boolean {
@@ -45,7 +46,6 @@ export async function createClient() {
  * (e.g., audit logging, seed operations).
  */
 export function createAdminClient() {
-  const { createClient: createSupabaseJsClient } = require('@supabase/supabase-js');
   const url =
     process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://mock-trustvault.supabase.co';
   const key =

@@ -1,3 +1,4 @@
+import { csrfRejection } from '@/lib/security';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import { requireAuth, isDocumentOwner, getRequestMeta, AuthorizationError } from '@/lib/auth';
 import { logAuditEvent } from '@/lib/audit';
@@ -7,6 +8,8 @@ import { mutateStore } from '@/lib/local-db';
 type RouteParams = { params: Promise<{ id: string; permissionId: string }> };
 
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
+  const crossOrigin = csrfRejection(request);
+  if (crossOrigin) return crossOrigin;
   const { id, permissionId } = await params;
   const { ipAddress, userAgent } = await getRequestMeta();
 

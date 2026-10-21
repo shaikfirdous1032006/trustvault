@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 interface RateLimitRecord {
   count: number;
@@ -58,60 +58,62 @@ export function resetRateLimit(key?: string): void {
 }
 
 /**
- * CSRF protection for state-changing requests.
- * Inspects Sec-Fetch-Site, Origin, and Referer headers against the host.
+ * Cross-origin request rejection for state-changing calls.
+ *
+ * Sessions are cookies with SameSite=Lax, which already blocks the classic
+ * cross-site form POST; this check is the second layer and the one that also
+ * covers fetch() from a page on another origin. There is intentionally no
+ * development-mode bypass: a guard that only works in production is a guard that
+ * nobody tests, and every browser sends Origin on a same-origin POST, PATCH, PUT
+ * or DELETE, so requiring it costs the real client nothing.
  */
 export function verifyCsrf(request: NextRequest): { valid: boolean; reason?: string } {
   const method = request.method.toUpperCase();
-  // Safe methods do not require CSRF validation
   if (['GET', 'HEAD', 'OPTIONS'].includes(method)) {
     return { valid: true };
   }
 
-  // If client provides a custom API request header, browsers enforce preflight CORS
-  const requestedWith = request.headers.get('x-requested-with');
-  if (requestedWith) {
-    return { valid: true };
+  // A browser that knows the request is cross-site says so. Trust it immediately.
+  if (request.headers.get('sec-fetch-site') === 'cross-site') {
+    return { valid: false, reason: 'Sec-Fetch-Site reports a cross-site request' };
   }
 
-  // Check Sec-Fetch-Site (modern browsers)
-  const secFetchSite = request.headers.get('sec-fetch-site');
-  if (secFetchSite && ['same-origin', 'same-site', 'none'].includes(secFetchSite)) {
-    return { valid: true };
-  }
-
-  // Check Origin or Referer against Host
-  const host = request.headers.get('host') || request.nextUrl.host;
+  const host = request.headers.get('host') || new URL(request.url).host;
   const origin = request.headers.get('origin');
-  if (origin) {
-    try {
-      const originHost = new URL(origin).host;
-      if (originHost === host) {
-        return { valid: true };
-      }
-      return { valid: false, reason: `Origin header '${originHost}' does not match host '${host}'` };
-    } catch {
-      return { valid: false, reason: 'Malformed Origin header' };
-    }
-  }
-
   const referer = request.headers.get('referer');
-  if (referer) {
+
+  if (!origin && !referer) {
+    return { valid: false, reason: 'State-changing request carried no Origin or Referer' };
+  }
+
+  for (const [headerName, value] of [
+    ['Origin', origin],
+    ['Referer', referer],
+  ] as const) {
+    if (!value) continue;
+    let candidateHost: string;
     try {
-      const refererHost = new URL(referer).host;
-      if (refererHost === host) {
-        return { valid: true };
-      }
-      return { valid: false, reason: `Referer header '${refererHost}' does not match host '${host}'` };
+      candidateHost = new URL(value).host;
     } catch {
-      return { valid: false, reason: 'Malformed Referer header' };
+      return { valid: false, reason: `Malformed ${headerName} header` };
+    }
+    if (candidateHost !== host) {
+      return { valid: false, reason: `${headerName} host '${candidateHost}' does not match '${host}'` };
     }
   }
 
-  // In development/test environments where Origin/Referer might not be attached to local NextRequest instances
-  if (process.env.NODE_ENV !== 'production') {
-    return { valid: true };
-  }
+  return { valid: true };
+}
 
-  return { valid: false, reason: 'Missing Origin or Referer header on state-changing request' };
+/**
+ * One-call guard for a mutating route handler. Returns a response the caller must
+ * send, or null when the request may proceed.
+ */
+export function csrfRejection(request: NextRequest): NextResponse | null {
+  const decision = verifyCsrf(request);
+  if (decision.valid) return null;
+  return NextResponse.json(
+    { success: false, error: 'Cross-origin request rejected', reason: decision.reason },
+    { status: 403, headers: { 'Cache-Control': 'no-store' } }
+  );
 }

@@ -1,3 +1,4 @@
+import { csrfRejection } from '@/lib/security';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import { requireAuth, checkDocumentPermission, isDocumentOwner, getRequestMeta, AuthorizationError } from '@/lib/auth';
 import { logAuditEvent } from '@/lib/audit';
@@ -48,26 +49,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (!isSupabaseConfigured()) {
       const store = getStore();
       const local = getDocument(id);
-      const demoFallback = {
-        id,
-        owner_id: 'user-owner',
-        title: 'Secret Financial Plan',
-        description: 'Highly confidential.',
-        category: 'financial',
-        storage_path: 'user-owner/secret_plan.pdf',
-        file_name: 'secret_plan.pdf',
-        file_size: 1024,
-        mime_type: 'application/pdf',
-        checksum: 'abc',
-        current_version: 1,
-        is_deleted: false,
-        deleted_at: null,
-        deleted_by: null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        owner: { id: 'user-owner', email: 'owner@example.com', full_name: 'Document Owner', role: 'owner' as const, is_active: true, created_at: '', updated_at: '' },
-      };
-      const doc = local ? withUser(local, store) : demoFallback;
+      if (!local) {
+        return denyNotFound();
+      }
+      const doc = withUser(local, store);
 
       await logAuditEvent({
         actorId: user.id,
@@ -126,6 +111,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 }
 
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
+  const crossOrigin = csrfRejection(request);
+  if (crossOrigin) return crossOrigin;
   const { id } = await params;
   const { ipAddress, userAgent } = await getRequestMeta();
 
@@ -221,6 +208,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 }
 
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
+  const crossOrigin = csrfRejection(request);
+  if (crossOrigin) return crossOrigin;
   const { id } = await params;
   const { ipAddress, userAgent } = await getRequestMeta();
 
