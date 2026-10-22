@@ -17,6 +17,7 @@ import {
   Database,
 } from "lucide-react";
 import Link from "next/link";
+import { DashboardRecentActivity } from "@/components/dashboard-recent-activity";
 
 export const metadata = {
   title: "Dashboard — TrustVault",
@@ -390,62 +391,8 @@ export default async function DashboardPage() {
           )}
         </div>
 
-        {/* Activity Feed */}
-        <div className="card">
-          <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
-            <Activity className="w-5 h-5 text-success" />
-            Recent Activity
-          </h2>
-
-          {recentAudit.length > 0 ? (
-            <div className="space-y-3">
-              {recentAudit.map((event) => (
-                <div
-                  key={event.id}
-                  className="flex items-start gap-3 text-sm"
-                >
-                  <div className="mt-0.5">
-                    {event.result === "allowed" ? (
-                      <CheckCircle2 className="w-4 h-4 text-success" />
-                    ) : (
-                      <AlertTriangle className="w-4 h-4 text-danger" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="truncate">
-                      <span className="text-[var(--muted)]">
-                        {event.actor_email?.split("@")[0] || "Unknown"}
-                      </span>{" "}
-                      <span className="font-medium">
-                        {formatAction(event.action)}
-                      </span>
-                    </p>
-                    <p className="text-xs text-[var(--muted)] flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      {formatTimeAgo(event.occurred_at)}
-                    </p>
-                  </div>
-                  <span
-                    className={`badge ${
-                      event.result === "allowed"
-                        ? "badge-success"
-                        : "badge-danger"
-                    }`}
-                  >
-                    {event.result}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="empty-state py-8">
-              <Activity className="w-10 h-10 text-[var(--muted)] opacity-30" />
-              <p className="text-sm text-[var(--muted)] mt-2">
-                No recent activity
-              </p>
-            </div>
-          )}
-        </div>
+        {/* Real-Time Live Activity Feed */}
+        <DashboardRecentActivity initialEvents={recentAudit} />
       </div>
 
       {/* Quick Actions */}
