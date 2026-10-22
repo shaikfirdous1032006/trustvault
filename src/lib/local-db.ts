@@ -397,7 +397,10 @@ export function findUserByEmail(email: string): User | undefined {
 }
 
 export function findUserById(id: string): User | undefined {
-  return readStore().users.find((u) => u.id === id);
+  const store = readStore();
+  const found = store.users.find((u) => u.id === id);
+  if (found) return found;
+  return seedStore().users.find((u) => u.id === id);
 }
 
 export function getDocument(id: string): Document | undefined {

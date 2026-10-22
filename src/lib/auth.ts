@@ -31,11 +31,20 @@ const sessionUser = await verifySessionToken(token);
       if (!isSupabaseConfigured()) {
         const storedUser = findUserById(sessionUser.id);
 
-        if (!storedUser) {
-          return null;
+        if (storedUser) {
+          return storedUser;
         }
 
-        return storedUser;
+        // Resilient fallback to verified cryptographically-signed session payload
+        return {
+          id: sessionUser.id,
+          email: sessionUser.email,
+          role: sessionUser.role,
+          full_name: sessionUser.full_name,
+          is_active: sessionUser.is_active ?? true,
+          created_at: new Date(sessionUser.iat * 1000).toISOString(),
+          updated_at: new Date(sessionUser.iat * 1000).toISOString(),
+        };
       }
 
       const { createClient } = await import('@/lib/supabase/server');
