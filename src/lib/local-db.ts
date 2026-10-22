@@ -147,15 +147,6 @@ function seedStore(): LocalStore {
       created_at: earlier2,
       updated_at: earlier2,
     },
-    {
-      id: 'b1141308-259c-4ebe-85bc-10056166b582',
-      email: 'shaikfirdous1036@gmail.com',
-      full_name: 'firdous',
-      role: 'owner',
-      is_active: true,
-      created_at: earlier2,
-      updated_at: earlier2,
-    },
   ];
 
   const documents: Document[] = [
@@ -298,7 +289,6 @@ function seedStore(): LocalStore {
 }
 
 import {
-  initMongoSync,
   pushStoreToMongo,
   pushAuditEventToMongo,
   fetchStoreFromMongo,
@@ -313,33 +303,21 @@ function readStore(): LocalStore {
     } catch {
       // ignore
     }
-    void initMongoSync(() => seeded, (s) => writeStore(s, false));
     return seeded;
   }
   try {
     const store = JSON.parse(fs.readFileSync(STORE_PATH, 'utf8')) as LocalStore;
-    // Stores written before share links existed have no key for them; an undefined
-    // array here would crash the first read that touches it.
     if (!Array.isArray(store.share_links)) store.share_links = [];
-    void initMongoSync(() => store, (s) => writeStore(s, false));
     return store;
   } catch {
     const seeded = seedStore();
-    void initMongoSync(() => seeded, (s) => writeStore(s, false));
     return seeded;
   }
 }
 
-function writeStore(store: LocalStore, syncMongo = true) {
+function writeStore(store: LocalStore) {
   ensureDirs();
-  try {
-    fs.writeFileSync(STORE_PATH, JSON.stringify(store, null, 2));
-  } catch {
-    // ignore
-  }
-  if (syncMongo) {
-    void pushStoreToMongo(store);
-  }
+  fs.writeFileSync(STORE_PATH, JSON.stringify(store, null, 2));
 }
 
 export function getStore(): LocalStore {
@@ -350,7 +328,7 @@ export async function syncMongoStore(): Promise<boolean> {
   try {
     const remote = await fetchStoreFromMongo();
     if (remote) {
-      writeStore(remote, false);
+      writeStore(remote);
       return true;
     } else {
       const current = readStore();
@@ -389,18 +367,14 @@ export function withPermissionUsers(
 }
 
 export function findUserByEmail(email: string): User | undefined {
-  const store = readStore();
-  const lower = email.trim().toLowerCase();
-  const found = store.users.find((u) => u.email.toLowerCase() === lower);
-  if (found) return found;
-  return seedStore().users.find((u) => u.email.toLowerCase() === lower);
+  if (!email || typeof email !== 'string') return undefined;
+  const normalized = email.trim().toLowerCase();
+  return readStore().users.find((u) => u.email.trim().toLowerCase() === normalized);
 }
 
 export function findUserById(id: string): User | undefined {
-  const store = readStore();
-  const found = store.users.find((u) => u.id === id);
-  if (found) return found;
-  return seedStore().users.find((u) => u.id === id);
+  if (!id || typeof id !== 'string') return undefined;
+  return readStore().users.find((u) => u.id === id);
 }
 
 export function getDocument(id: string): Document | undefined {
@@ -472,7 +446,7 @@ export async function appendAudit(
     };
 
     store.audit.push(created);
-    writeStore(store, false);
+    writeStore(store);
     void pushAuditEventToMongo(created);
     return created;
   });

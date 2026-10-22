@@ -44,5 +44,6 @@ next-env.d.ts
 
 # local storage and reports
 /.data/
+/data/
 /test-results/
 /playwright-report/

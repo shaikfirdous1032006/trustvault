@@ -44,7 +44,7 @@ export async function GET() {
     database: {
       mode: isMongo ? 'mongodb' : (isSupabase ? 'supabase' : 'local-storage'),
       status: dbStatus,
-      cluster: mongoDetails?.cluster || (isMongo ? 'cluster0.m0y0ghy.mongodb.net' : 'local'),
+      cluster: mongoDetails?.cluster || (isMongo ? 'cloud-cluster' : 'local'),
       dbName: mongoDetails?.dbName || 'trustvault',
       latencyMs: mongoDetails?.latencyMs,
       collections: mongoDetails?.collections || [],

@@ -35,7 +35,6 @@ const sessionUser = await verifySessionToken(token);
           return storedUser;
         }
 
-        // Resilient fallback to verified cryptographically-signed session payload
         return {
           id: sessionUser.id,
           email: sessionUser.email,

@@ -9,6 +9,9 @@ export async function GET() {
     if (!user) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
+    if (!user.is_active) {
+      return NextResponse.json({ success: false, error: 'Account is deactivated' }, { status: 403 });
+    }
 
     return NextResponse.json({
       success: true,

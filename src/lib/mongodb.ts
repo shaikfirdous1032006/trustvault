@@ -1,10 +1,7 @@
 import { MongoClient, Db } from 'mongodb';
 
 function getMongoUri(): string {
-  return (
-    process.env.MONGODB_URI ||
-    'mongodb+srv://shaikmuskan02122003_db_user:LuvbYm4iqALsKENO@cluster0.m0y0ghy.mongodb.net/trustvault?retryWrites=true&w=majority&appName=Cluster0'
-  ).trim();
+  return (process.env.MONGODB_URI || '').trim();
 }
 
 function getDbName(): string {

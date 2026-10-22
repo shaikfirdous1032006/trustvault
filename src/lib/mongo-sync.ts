@@ -6,7 +6,12 @@ import type { AnyBulkWriteOperation, Document, Filter, OptionalUnlessRequiredId 
 let isSyncing = false;
 let hasInitialized = false;
 
-function cleanDoc<T extends { id: string }>(doc: Record<string, unknown>): T {
+export interface MongoEntity extends Document {
+  _id: string;
+  [key: string]: unknown;
+}
+
+function cleanDoc<T extends { id: string }>(doc: Document): T {
   const { _id, ...rest } = doc;
   return {
     ...rest,
@@ -24,12 +29,12 @@ export async function fetchStoreFromMongo(): Promise<LocalStore | null> {
     const db = await getMongoDb();
 
     const [users, documents, permissions, versions, share_links, audit] = await Promise.all([
-      db.collection('users').find().toArray(),
-      db.collection('documents').find().toArray(),
-      db.collection('permissions').find().toArray(),
-      db.collection('versions').find().toArray(),
-      db.collection('share_links').find().toArray(),
-      db.collection('audit').find().sort({ occurred_at: 1 }).toArray(),
+      db.collection<MongoEntity>('users').find().toArray(),
+      db.collection<MongoEntity>('documents').find().toArray(),
+      db.collection<MongoEntity>('permissions').find().toArray(),
+      db.collection<MongoEntity>('versions').find().toArray(),
+      db.collection<MongoEntity>('share_links').find().toArray(),
+      db.collection<MongoEntity>('audit').find().sort({ occurred_at: 1 }).toArray(),
     ]);
 
     // If users collection is empty, the database has not been initialized yet
@@ -38,12 +43,12 @@ export async function fetchStoreFromMongo(): Promise<LocalStore | null> {
     }
 
     return {
-      users: users.map((d) => cleanDoc(d as Record<string, unknown>)),
-      documents: documents.map((d) => cleanDoc(d as Record<string, unknown>)),
-      permissions: permissions.map((d) => cleanDoc(d as Record<string, unknown>)),
-      versions: versions.map((d) => cleanDoc(d as Record<string, unknown>)),
-      share_links: share_links.map((d) => cleanDoc(d as Record<string, unknown>)),
-      audit: audit.map((d) => cleanDoc(d as Record<string, unknown>)),
+      users: users.map((d) => cleanDoc(d)),
+      documents: documents.map((d) => cleanDoc(d)),
+      permissions: permissions.map((d) => cleanDoc(d)),
+      versions: versions.map((d) => cleanDoc(d)),
+      share_links: share_links.map((d) => cleanDoc(d)),
+      audit: audit.map((d) => cleanDoc(d)),
     };
   } catch (error) {
     console.warn('[MongoDB Sync] Failed to fetch from MongoDB Atlas:', error);
@@ -63,13 +68,13 @@ export async function pushStoreToMongo(store: LocalStore): Promise<void> {
     const db = await getMongoDb();
 
     // Helper for bulk upsert
-    const upsertBatch = async (collectionName: string, items: Array<{ id: string } & Record<string, unknown>>) => {
+    const upsertBatch = async <T extends { id: string }>(collectionName: string, items: T[]) => {
       if (!items || items.length === 0) return;
-      const collection = db.collection(collectionName);
-      const operations: AnyBulkWriteOperation<Document>[] = items.map((item) => ({
+      const collection = db.collection<MongoEntity>(collectionName);
+      const operations: AnyBulkWriteOperation<MongoEntity>[] = items.map((item) => ({
         replaceOne: {
-          filter: { _id: item.id } as unknown as Filter<Document>,
-          replacement: { _id: item.id, ...item } as unknown as Document,
+          filter: { _id: item.id },
+          replacement: { _id: item.id, ...item },
           upsert: true,
         },
       }));
@@ -77,12 +82,12 @@ export async function pushStoreToMongo(store: LocalStore): Promise<void> {
     };
 
     await Promise.allSettled([
-      upsertBatch('users', store.users as unknown as Array<{ id: string } & Record<string, unknown>>),
-      upsertBatch('documents', store.documents as unknown as Array<{ id: string } & Record<string, unknown>>),
-      upsertBatch('permissions', store.permissions as unknown as Array<{ id: string } & Record<string, unknown>>),
-      upsertBatch('versions', store.versions as unknown as Array<{ id: string } & Record<string, unknown>>),
-      upsertBatch('share_links', store.share_links as unknown as Array<{ id: string } & Record<string, unknown>>),
-      upsertBatch('audit', store.audit as unknown as Array<{ id: string } & Record<string, unknown>>),
+      upsertBatch('users', store.users),
+      upsertBatch('documents', store.documents),
+      upsertBatch('permissions', store.permissions),
+      upsertBatch('versions', store.versions),
+      upsertBatch('share_links', store.share_links),
+      upsertBatch('audit', store.audit),
     ]);
   } catch (error) {
     console.warn('[MongoDB Sync] Failed to push store to MongoDB Atlas:', error);
@@ -99,9 +104,10 @@ export async function pushAuditEventToMongo(event: AuditEvent): Promise<void> {
 
   try {
     const db = await getMongoDb();
-    await db.collection('audit').replaceOne(
-      { _id: event.id } as unknown as Filter<Document>,
-      { _id: event.id, ...event } as unknown as OptionalUnlessRequiredId<Document>,
+    const collection = db.collection<MongoEntity>('audit');
+    await collection.replaceOne(
+      { _id: event.id },
+      { _id: event.id, ...event },
       { upsert: true }
     );
   } catch (error) {

@@ -1,4 +1,3 @@
-
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -12,18 +11,17 @@ import {
   hashPassword,
   savePasswordRecord,
 } from "@/lib/passwords";
-import { createSessionToken, SESSION_COOKIE } from "@/lib/session";
+import type { User } from "@/lib/types";
 
 const registerSchema = z.object({
-  full_name: z.string().trim().min(2).max(100),
-  email: z.string().trim().email().max(254),
-  password: z.string().min(8).max(200),
-  role: z.enum(["owner", "viewer", "admin"]).default("viewer"),
+  full_name: z.string().trim().min(2, "Name must be at least 2 characters").max(100),
+  email: z.string().trim().email("Invalid email address").max(254),
+  password: z.string().min(8, "Password must be at least 8 characters").max(200),
+  role: z.enum(["owner", "viewer"]).default("viewer"),
 });
 
 export async function POST(request: NextRequest) {
   const crossOrigin = csrfRejection(request);
-
   if (crossOrigin) {
     return crossOrigin;
   }
@@ -43,7 +41,7 @@ export async function POST(request: NextRequest) {
 
   const limit = checkRateLimit(
     `register:${ipAddress || "unknown-client"}`,
-    5,
+    10,
     60_000
   );
 
@@ -73,6 +71,7 @@ export async function POST(request: NextRequest) {
         {
           success: false,
           error:
+            parsed.error.issues[0]?.message ||
             "Enter a valid name, email, password (min 8 chars), and role.",
         },
         { status: 400 }
@@ -80,29 +79,28 @@ export async function POST(request: NextRequest) {
     }
 
     const fullName = parsed.data.full_name;
-    const email = parsed.data.email.toLowerCase();
+    const normalizedEmail = parsed.data.email.trim().toLowerCase();
     const selectedRole = parsed.data.role;
     const passwordRecord = hashPassword(parsed.data.password);
 
-    // Configure this only for the account you control.
     const ownerEmail = process.env.TRUSTVAULT_OWNER_EMAIL
       ?.trim()
       .toLowerCase();
 
     const result = await mutateStore((store) => {
-      if (
-        store.users.some(
-          (user) => user.email.toLowerCase() === email
-        )
-      ) {
+      const emailExists = store.users.some(
+        (user) => user.email.trim().toLowerCase() === normalizedEmail
+      );
+
+      if (emailExists) {
         return { error: "EXISTS" as const };
       }
 
       const now = new Date().toISOString();
 
-      const user = {
+      const user: User = {
         id: randomUUID(),
-        email,
+        email: normalizedEmail,
         full_name: fullName,
         role: selectedRole,
         is_active: true,
@@ -126,38 +124,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Persist user and credentials directly to MongoDB Atlas for cloud sync
-    try {
-      const { getMongoDb, isMongoConfigured } = await import("@/lib/mongodb");
-      if (isMongoConfigured()) {
-        const db = await getMongoDb();
-        await Promise.all([
-          db.collection("users").updateOne(
-            { email: result.user.email },
-            { $set: result.user },
-            { upsert: true }
-          ),
-          db.collection("credentials").updateOne(
-            { user_id: result.user.id },
-            {
-              $set: {
-                user_id: result.user.id,
-                email: result.user.email,
-                salt: passwordRecord.salt,
-                hash: passwordRecord.hash,
-                updated_at: new Date(),
-              },
-            },
-            { upsert: true }
-          ),
-        ]);
-      }
-    } catch {
-      // ignore
-    }
-
     const isConfiguredOwner =
-      Boolean(ownerEmail) && email === ownerEmail;
+      Boolean(ownerEmail) && normalizedEmail === ownerEmail;
 
     await logAuditEvent({
       actorId: result.user.id,
@@ -173,17 +141,9 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    let token = "";
-    try {
-      token = await createSessionToken(result.user);
-    } catch {
-      // ignore
-    }
-
-    const response = NextResponse.json(
+    return NextResponse.json(
       {
         success: true,
-        autoLogin: Boolean(token),
         message:
           "Account created successfully. Sign in to continue.",
         data: {
@@ -197,31 +157,6 @@ export async function POST(request: NextRequest) {
       },
       { status: 201 }
     );
-
-    if (token) {
-      response.cookies.set({
-        name: SESSION_COOKIE,
-        value: token,
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        path: "/",
-        maxAge: 86400,
-      });
-    }
-
-    try {
-      const { appendCookieAccount } = await import("@/lib/cookie-accounts");
-      appendCookieAccount(request, response, {
-        user: result.user,
-        salt: passwordRecord.salt,
-        hash: passwordRecord.hash,
-      });
-    } catch {
-      // ignore
-    }
-
-    return response;
   } catch (error) {
     console.error("[AUTH] Registration failed:", error);
 

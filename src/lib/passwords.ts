@@ -1,4 +1,3 @@
-
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -22,33 +21,23 @@ function resolveDataDir(): string {
 }
 
 const DATA_DIR = resolveDataDir();
-
 const CREDENTIALS_PATH = path.join(DATA_DIR, "credentials.json");
 
-const SEEDED_CREDENTIALS: Record<string, PasswordRecord> = {
-  // b1141308-259c-4ebe-85bc-10056166b582 (shaikfirdous1036@gmail.com)
-  "b1141308-259c-4ebe-85bc-10056166b582": {
-    salt: "daeae234277672ad409fcd7ef7e7f0da",
-    hash: "74c27012829b864bdfe071ec85528d5f45f6318eedbbbfc41100666986d5b2a206e50a516e0b6efeb9d99ef6436231ad12d99ceb317c347d6f8f4281938d95fd",
-  },
-};
-
 function readCredentials(): Record<string, PasswordRecord> {
-  let diskCreds: Record<string, PasswordRecord> = {};
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     if (fs.existsSync(CREDENTIALS_PATH)) {
       const contents = fs.readFileSync(CREDENTIALS_PATH, "utf8");
       const parsed: unknown = JSON.parse(contents);
       if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
-        diskCreds = parsed as Record<string, PasswordRecord>;
+        return parsed as Record<string, PasswordRecord>;
       }
     }
   } catch {
-    // ignore read-only on serverless
+    // If reading fails or file is empty, return empty map
   }
 
-  return { ...SEEDED_CREDENTIALS, ...diskCreds };
+  return {};
 }
 
 function isValidRecord(value: unknown): value is PasswordRecord {
@@ -102,37 +91,32 @@ export function savePasswordRecord(
       { encoding: "utf8", mode: 0o600, flag: "wx" }
     );
 
-    fs.chmodSync(temporaryPath, 0o600);
-    fs.renameSync(temporaryPath, CREDENTIALS_PATH);
+    try {
+      fs.chmodSync(temporaryPath, 0o600);
+    } catch {
+      // Ignored on platforms without Unix file mode support
+    }
+
+    try {
+      fs.renameSync(temporaryPath, CREDENTIALS_PATH);
+    } catch {
+      // Robust fallback on Windows/OneDrive where atomic rename over existing file can fail
+      fs.copyFileSync(temporaryPath, CREDENTIALS_PATH);
+    }
 
     try {
       fs.chmodSync(CREDENTIALS_PATH, 0o600);
     } catch {
-      // Some platforms do not support Unix-style file permissions.
+      // Ignored on platforms without Unix file mode support
     }
   } finally {
     if (fs.existsSync(temporaryPath)) {
-      fs.unlinkSync(temporaryPath);
-    }
-  }
-
-  // Also asynchronously persist to MongoDB credentials collection
-  try {
-    import("@/lib/mongodb").then(({ getMongoDb, isMongoConfigured }) => {
-      if (isMongoConfigured()) {
-        getMongoDb()
-          .then((db) =>
-            db.collection("credentials").updateOne(
-              { user_id: userId },
-              { $set: { user_id: userId, salt: record.salt, hash: record.hash, updated_at: new Date() } },
-              { upsert: true }
-            )
-          )
-          .catch(() => {});
+      try {
+        fs.unlinkSync(temporaryPath);
+      } catch {
+        // Ignored
       }
-    }).catch(() => {});
-  } catch {
-    // ignore
+    }
   }
 }
 
