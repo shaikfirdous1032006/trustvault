@@ -4,7 +4,8 @@
 > 
 > 🌐 **Live Deployed Application:** [https://trustvault-smoky.vercel.app](https://trustvault-smoky.vercel.app)  
 > 📦 **Public Repository:** [https://github.com/shaikfirdous1032006/trustvault](https://github.com/shaikfirdous1032006/trustvault)  
-> 🧪 **Automated Test Coverage:** 214 tests passing across 14 test suites (`npm test`)
+> 🧪 **Automated Test Coverage:** 214 tests passing across 14 test suites (`npm test`)  
+> 🎬 **Video Demonstration Walkthrough:** [docs/DEMO_SCRIPT.md](file:///docs/DEMO_SCRIPT.md) *(Recordings can be viewed following this 5-minute walkthrough)*
 
 ---
 
@@ -104,7 +105,7 @@ Open **[http://localhost:3000](http://localhost:3000)** in your browser.
 
 ## 📑 Required Competition Deliverables Index
 
-* 🛡️ **[THREATS.md](file:///THREATS.md):** 12 threat scenarios (STRIDE methodology), mitigations, residual risks, and accepted risks.
+* 🛡️ **[THREATS.md](file:///THREATS.md):** 30 threat scenarios (STRIDE methodology), mitigations, residual risks, accepted risks, and automated test cross-references.
 * 🤖 **[PROMPTS.md](file:///PROMPTS.md):** Detailed log of AI interactions across the development cycle, including catching AI errors in RLS policies, audit immutability, and storage boundaries.
 * 📖 **[docs/API.md](file:///docs/API.md):** Complete REST API specification with role and permission matrices.
 * 🏛️ **[docs/ARCHITECTURE.md](file:///docs/ARCHITECTURE.md):** Technical design guide and security boundaries.
