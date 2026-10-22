@@ -17,6 +17,7 @@ const registerSchema = z.object({
   full_name: z.string().trim().min(2).max(100),
   email: z.string().trim().email().max(254),
   password: z.string().min(8).max(200),
+  role: z.enum(["owner", "viewer", "admin"]).default("viewer"),
 });
 
 export async function POST(request: NextRequest) {
@@ -71,7 +72,7 @@ export async function POST(request: NextRequest) {
         {
           success: false,
           error:
-            "Enter a valid name, email, and password of at least 8 characters.",
+            "Enter a valid name, email, password (min 8 chars), and role.",
         },
         { status: 400 }
       );
@@ -79,6 +80,7 @@ export async function POST(request: NextRequest) {
 
     const fullName = parsed.data.full_name;
     const email = parsed.data.email.toLowerCase();
+    const selectedRole = parsed.data.role;
     const passwordRecord = hashPassword(parsed.data.password);
 
     // Configure this only for the account you control.
@@ -101,7 +103,7 @@ export async function POST(request: NextRequest) {
         id: randomUUID(),
         email,
         full_name: fullName,
-        role: "viewer" as const,
+        role: selectedRole,
         is_active: true,
         created_at: now,
         updated_at: now,
@@ -123,9 +125,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Do not promote accounts during public registration.
-    // The owner email is reserved for a separate, secure
-    // provisioning process rather than self-service registration.
     const isConfiguredOwner =
       Boolean(ownerEmail) && email === ownerEmail;
 
@@ -138,7 +137,7 @@ export async function POST(request: NextRequest) {
       userAgent,
       details: {
         operation: "account_registration",
-        assigned_role: "viewer",
+        assigned_role: selectedRole,
         configured_owner_email: isConfiguredOwner,
       },
     });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   Upload,
@@ -10,6 +10,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   Shield,
+  Lock,
+  ArrowLeft,
 } from "lucide-react";
 
 const CATEGORIES = [
@@ -44,6 +46,8 @@ export default function UploadPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [currentUser, setCurrentUser] = useState<{ id: string; role: string; email: string } | null>(null);
+  const [roleLoading, setRoleLoading] = useState(true);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("general");
@@ -52,6 +56,18 @@ export default function UploadPage() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.data) {
+          setCurrentUser(data.data);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setRoleLoading(false));
+  }, []);
 
   function validateFile(f: File): string | null {
     if (!ALLOWED_TYPES.includes(f.type)) {
@@ -132,6 +148,39 @@ export default function UploadPage() {
           <p className="text-sm text-[var(--muted)] mt-2">
             Redirecting to document page...
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!roleLoading && currentUser && currentUser.role !== "owner") {
+    return (
+      <div className="max-w-2xl mx-auto animate-fade-in py-8">
+        <div className="card text-center py-10 px-6 border border-amber-500/30">
+          <div className="w-16 h-16 rounded-2xl bg-amber-500/10 text-amber-400 flex items-center justify-center mx-auto mb-4">
+            <Lock className="w-8 h-8" />
+          </div>
+          <h2 className="text-2xl font-bold mb-2">Owner Access Required</h2>
+          <p className="text-[var(--muted)] text-sm max-w-md mx-auto">
+            Only users registered with the <strong className="text-purple-400">Document Owner</strong> role are permitted to upload confidential documents to TrustVault.
+          </p>
+          <div className="mt-4 p-3 rounded-lg bg-[var(--input-bg)] inline-block text-xs font-mono text-[var(--muted)] border border-white/5">
+            Your current role: <span className="font-bold text-[var(--foreground)] uppercase">{currentUser.role}</span> ({currentUser.email})
+          </div>
+          <div className="mt-6 flex items-center justify-center gap-3">
+            <button
+              onClick={() => router.push("/dashboard/documents")}
+              className="btn btn-primary btn-sm flex items-center gap-1.5"
+            >
+              <FileText className="w-4 h-4" /> View Documents
+            </button>
+            <button
+              onClick={() => router.push("/dashboard")}
+              className="btn btn-secondary btn-sm flex items-center gap-1.5"
+            >
+              <ArrowLeft className="w-4 h-4" /> Return to Dashboard
+            </button>
+          </div>
         </div>
       </div>
     );

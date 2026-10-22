@@ -2,7 +2,7 @@ import { createClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import { logAuditEvent } from '@/lib/audit';
 import { getRequestMeta } from '@/lib/auth';
 import { DEMO_IDS, findUserByEmail } from '@/lib/local-db';
-import { getPasswordRecord, verifyPassword } from '@/lib/passwords';
+import { getPasswordRecord, savePasswordRecord, verifyPassword } from '@/lib/passwords';
 import {
   createSessionToken,
   SESSION_COOKIE,
@@ -101,7 +101,22 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const credential = user ? getPasswordRecord(user.id) : undefined;
+      let credential = user ? getPasswordRecord(user.id) : undefined;
+      if (!credential && user) {
+        try {
+          const { getMongoDb, isMongoConfigured } = await import('@/lib/mongodb');
+          if (isMongoConfigured()) {
+            const db = await getMongoDb();
+            const doc = await db.collection('credentials').findOne({ user_id: user.id });
+            if (doc && doc.salt && doc.hash) {
+              credential = { salt: doc.salt, hash: doc.hash };
+              savePasswordRecord(user.id, credential);
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
 
       const seededDemoIds: string[] = [
         DEMO_IDS.admin,

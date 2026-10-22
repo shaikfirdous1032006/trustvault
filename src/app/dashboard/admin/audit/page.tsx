@@ -34,19 +34,22 @@ interface AuditEvent {
 
 const ACTIONS = [
   "all",
+  "auth",
+  "login",
+  "logout",
+  "login_failure",
+  "documents",
   "upload",
   "download",
   "preview",
   "update",
   "delete",
   "restore",
+  "version_upload",
+  "permissions",
   "permission_grant",
   "permission_revoke",
-  "login",
-  "login_failure",
-  "logout",
   "search",
-  "version_upload",
 ];
 
 export default function AdminAuditPage() {
@@ -300,6 +303,72 @@ export default function AdminAuditPage() {
         )}
       </div>
 
+      {/* Category Tabs: One-click filter for Login & Logout History */}
+      <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-1">
+        <button
+          onClick={() => {
+            setActionFilter("all");
+            setPage(1);
+          }}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
+            actionFilter === "all"
+              ? "bg-brand-600 text-white shadow-sm"
+              : "bg-[var(--input-bg)] text-[var(--muted)] hover:text-[var(--foreground)]"
+          }`}
+          id="tab-all-activity"
+        >
+          All Activity
+        </button>
+
+        <button
+          onClick={() => {
+            setActionFilter("auth");
+            setPage(1);
+          }}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
+            actionFilter === "auth" || actionFilter === "login" || actionFilter === "logout" || actionFilter === "login_failure"
+              ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm ring-1 ring-amber-500/30"
+              : "bg-[var(--input-bg)] text-[var(--muted)] hover:text-[var(--foreground)]"
+          }`}
+          id="tab-login-logout-history"
+        >
+          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+          🔑 Login & Logout History
+        </button>
+
+        <button
+          onClick={() => {
+            setActionFilter("documents");
+            setPage(1);
+          }}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
+            actionFilter === "documents"
+              ? "bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-sm"
+              : "bg-[var(--input-bg)] text-[var(--muted)] hover:text-[var(--foreground)]"
+          }`}
+          id="tab-document-actions"
+        >
+          <span className="w-2 h-2 rounded-full bg-purple-400" />
+          📄 Document Actions
+        </button>
+
+        <button
+          onClick={() => {
+            setActionFilter("permissions");
+            setPage(1);
+          }}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
+            actionFilter === "permissions"
+              ? "bg-blue-500/20 text-blue-300 border border-blue-500/40 shadow-sm"
+              : "bg-[var(--input-bg)] text-[var(--muted)] hover:text-[var(--foreground)]"
+          }`}
+          id="tab-permissions"
+        >
+          <span className="w-2 h-2 rounded-full bg-blue-400" />
+          🛡️ Permissions & Grants
+        </button>
+      </div>
+
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
         <div className="relative">
@@ -463,6 +532,9 @@ export default function AdminAuditPage() {
 
 function formatAction(action: string): string {
   const map: Record<string, string> = {
+    auth: "🔑 Login & Logout History",
+    documents: "📄 All Document Actions",
+    permissions: "🛡️ All Permission Grants",
     upload: "Upload",
     download: "Download",
     preview: "View",

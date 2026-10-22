@@ -218,7 +218,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (user.role !== 'owner' && user.role !== 'admin') {
+    if (user.role !== 'owner') {
       await logAuditEvent({
         actorId: user.id,
         actorEmail: user.email,
@@ -226,7 +226,7 @@ export async function POST(request: NextRequest) {
         result: 'denied',
         ipAddress,
         userAgent,
-        details: { reason: 'Insufficient role' },
+        details: { reason: 'Only owners can upload documents' },
       });
 
       return NextResponse.json(

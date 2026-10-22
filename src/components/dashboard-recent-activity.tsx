@@ -3,8 +3,6 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Activity,
-  CheckCircle2,
-  AlertTriangle,
   Clock,
   RefreshCw,
   LogIn,
@@ -14,7 +12,6 @@ import {
   Eye,
   Key,
   FileText,
-  Shield,
   Sparkles,
 } from "lucide-react";
 
@@ -177,6 +174,7 @@ function renderActionDescription(event: ActivityEvent) {
 
 export function DashboardRecentActivity({ initialEvents = [] }: { initialEvents?: ActivityEvent[] }) {
   const [events, setEvents] = useState<ActivityEvent[]>(initialEvents);
+  const [filter, setFilter] = useState<"all" | "auth" | "documents">("all");
   const [refreshing, setRefreshing] = useState(false);
   const [, setLastUpdated] = useState<Date>(new Date());
 
@@ -197,22 +195,42 @@ export function DashboardRecentActivity({ initialEvents = [] }: { initialEvents?
   }, []);
 
   useEffect(() => {
-    // Initial fetch to sync with remote MongoDB
-    void fetchActivities(false);
+    let mounted = true;
+    const load = () => {
+      if (mounted) void fetchActivities(false);
+    };
+    const timer = setTimeout(load, 0);
+    const interval = setInterval(load, 3500);
 
-    // Auto-poll every 3.5 seconds for real-time live events
-    const interval = setInterval(() => {
-      void fetchActivities(false);
-    }, 3500);
-
-    return () => clearInterval(interval);
+    return () => {
+      mounted = false;
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
   }, [fetchActivities]);
+
+  const filteredEvents = events.filter((e) => {
+    if (filter === "auth") {
+      return ["login", "logout", "login_failure"].includes(e.action);
+    }
+    if (filter === "documents") {
+      return [
+        "upload",
+        "download",
+        "preview",
+        "version_upload",
+        "permission_grant",
+        "permission_revoke",
+      ].includes(e.action);
+    }
+    return true;
+  });
 
   return (
     <div className="card h-full flex flex-col justify-between">
       <div>
         {/* Header with live feed indicator and refresh button */}
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-semibold flex items-center gap-2 text-[var(--foreground)]">
               <Activity className="w-5 h-5 text-emerald-400" />
@@ -234,10 +252,47 @@ export function DashboardRecentActivity({ initialEvents = [] }: { initialEvents?
           </button>
         </div>
 
+        {/* Quick Filter Chips: All, Logins & Logouts, Documents */}
+        <div className="flex items-center gap-1.5 mb-3.5">
+          <button
+            onClick={() => setFilter("all")}
+            className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${
+              filter === "all"
+                ? "bg-brand-600 text-white"
+                : "bg-[var(--input-bg)] text-[var(--muted)] hover:text-[var(--foreground)]"
+            }`}
+          >
+            All
+          </button>
+          <button
+            onClick={() => setFilter("auth")}
+            className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition flex items-center gap-1 ${
+              filter === "auth"
+                ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                : "bg-[var(--input-bg)] text-[var(--muted)] hover:text-[var(--foreground)]"
+            }`}
+            id="filter-auth-history"
+          >
+            <LogIn className="w-3 h-3 text-emerald-400" />
+            Logins & Logouts
+          </button>
+          <button
+            onClick={() => setFilter("documents")}
+            className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition flex items-center gap-1 ${
+              filter === "documents"
+                ? "bg-purple-500/20 text-purple-300 border border-purple-500/30"
+                : "bg-[var(--input-bg)] text-[var(--muted)] hover:text-[var(--foreground)]"
+            }`}
+          >
+            <FileText className="w-3 h-3 text-purple-400" />
+            Documents
+          </button>
+        </div>
+
         {/* Activity list */}
-        {events && events.length > 0 ? (
+        {filteredEvents && filteredEvents.length > 0 ? (
           <div className="space-y-3">
-            {events.slice(0, 8).map((event) => (
+            {filteredEvents.slice(0, 8).map((event) => (
               <div
                 key={event.id}
                 className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-[var(--input-bg)] transition-all border border-transparent hover:border-white/5 group"
@@ -281,9 +336,17 @@ export function DashboardRecentActivity({ initialEvents = [] }: { initialEvents?
         ) : (
           <div className="empty-state py-8">
             <Activity className="w-10 h-10 text-[var(--muted)] opacity-30" />
-            <p className="text-sm text-[var(--muted)] mt-2">No recent activity yet</p>
+            <p className="text-sm text-[var(--muted)] mt-2">
+              {filter === "auth"
+                ? "No login or logout events recorded"
+                : filter === "documents"
+                ? "No document activity recorded"
+                : "No recent activity yet"}
+            </p>
             <p className="text-xs text-[var(--muted)] opacity-70 mt-1">
-              Actions like logins, uploads, and downloads will appear here live.
+              {filter === "auth"
+                ? "Sign-in and sign-out actions will appear here live."
+                : "Actions like logins, uploads, and downloads will appear here live."}
             </p>
           </div>
         )}

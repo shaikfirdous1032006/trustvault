@@ -114,6 +114,25 @@ export function savePasswordRecord(
       fs.unlinkSync(temporaryPath);
     }
   }
+
+  // Also asynchronously persist to MongoDB credentials collection
+  try {
+    import("@/lib/mongodb").then(({ getMongoDb, isMongoConfigured }) => {
+      if (isMongoConfigured()) {
+        getMongoDb()
+          .then((db) =>
+            db.collection("credentials").updateOne(
+              { user_id: userId },
+              { $set: { user_id: userId, salt: record.salt, hash: record.hash, updated_at: new Date() } },
+              { upsert: true }
+            )
+          )
+          .catch(() => {});
+      }
+    }).catch(() => {});
+  } catch {
+    // ignore
+  }
 }
 
 export function getPasswordRecord(

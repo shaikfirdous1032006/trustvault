@@ -396,19 +396,20 @@ export default async function DashboardPage() {
       </div>
 
       {/* Quick Actions */}
-      {(user.role === "owner" || user.role === "admin") && (
-        <div className="mt-6 card">
-          <h2 className="text-lg font-semibold mb-4">Quick Actions</h2>
-          <div className="flex flex-wrap gap-3">
+      <div className="mt-6 card">
+        <h2 className="text-lg font-semibold mb-4">Quick Actions</h2>
+        <div className="flex flex-wrap gap-3">
+          {user.role === "owner" && (
             <Link href="/dashboard/upload" className="btn btn-primary btn-sm">
               <Upload className="w-4 h-4" /> Upload Document
             </Link>
-            <Link
-              href="/dashboard/documents"
-              className="btn btn-secondary btn-sm"
-            >
-              <FileText className="w-4 h-4" /> Browse Documents
-            </Link>
+          )}
+          <Link
+            href="/dashboard/documents"
+            className="btn btn-secondary btn-sm"
+          >
+            <FileText className="w-4 h-4" /> Browse Documents
+          </Link>
             {user.role === "admin" && (
               <>
                 <Link
@@ -427,10 +428,9 @@ export default async function DashboardPage() {
             )}
           </div>
         </div>
-      )}
-    </div>
-  );
-}
+      </div>
+    );
+  }
 
 function StatCard({
   icon,

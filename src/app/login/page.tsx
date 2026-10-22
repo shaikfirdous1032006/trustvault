@@ -47,6 +47,7 @@ export default function LoginPage() {
   const router = useRouter();
 
   const [mode, setMode] = useState<"login" | "register">("login");
+  const [role, setRole] = useState<"owner" | "viewer" | "admin">("viewer");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -102,6 +103,7 @@ export default function LoginPage() {
               name: name.trim(),
               email: email.trim(),
               password,
+              role,
             };
 
       const response = await fetch(endpoint, {
@@ -124,7 +126,7 @@ export default function LoginPage() {
       }
 
       if (mode === "register") {
-        setMessage("Account created. You can now sign in.");
+        setMessage(`Account created successfully with ${role.toUpperCase()} role! You can now sign in.`);
         setMode("login");
         setPassword("");
         setConfirmPassword("");
@@ -287,25 +289,87 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {mode === "register" && (
-              <div>
-                <label
-                  htmlFor="full-name"
-                  className="mb-1.5 block text-sm font-medium text-[var(--muted)]"
-                >
-                  Full name
-                </label>
-                <input
-                  id="full-name"
-                  type="text"
-                  className="input"
-                  placeholder="Your full name"
-                  autoComplete="name"
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  required
-                  maxLength={100}
-                />
-              </div>
+              <>
+                <div>
+                  <label
+                    htmlFor="full-name"
+                    className="mb-1.5 block text-sm font-medium text-[var(--muted)]"
+                  >
+                    Full name
+                  </label>
+                  <input
+                    id="full-name"
+                    type="text"
+                    className="input"
+                    placeholder="Your full name"
+                    autoComplete="name"
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    required
+                    maxLength={100}
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-[var(--muted)]">
+                    Select your account role *
+                  </label>
+                  <div className="grid grid-cols-2 gap-2.5 mb-2">
+                    <button
+                      type="button"
+                      onClick={() => setRole("owner")}
+                      className={`flex flex-col items-start p-3 rounded-xl border text-left transition-all ${
+                        role === "owner"
+                          ? "border-purple-500 bg-purple-500/10 text-purple-400 ring-2 ring-purple-500/50 shadow-sm"
+                          : "border-[var(--card-border)] bg-[var(--input-bg)] text-[var(--muted)] hover:border-purple-500/40"
+                      }`}
+                      id="role-select-owner"
+                    >
+                      <div className="flex items-center gap-1.5 font-bold text-xs text-[var(--foreground)]">
+                        <span className="p-1 rounded bg-purple-500/20 text-purple-300">👑</span>
+                        <span>Document Owner</span>
+                      </div>
+                      <span className="text-[11px] text-[var(--muted)] mt-1.5 leading-snug">
+                        Can upload, manage & share documents
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setRole("viewer")}
+                      className={`flex flex-col items-start p-3 rounded-xl border text-left transition-all ${
+                        role === "viewer"
+                          ? "border-blue-500 bg-blue-500/10 text-blue-400 ring-2 ring-blue-500/50 shadow-sm"
+                          : "border-[var(--card-border)] bg-[var(--input-bg)] text-[var(--muted)] hover:border-blue-500/40"
+                      }`}
+                      id="role-select-viewer"
+                    >
+                      <div className="flex items-center gap-1.5 font-bold text-xs text-[var(--foreground)]">
+                        <span className="p-1 rounded bg-blue-500/20 text-blue-300">👁️</span>
+                        <span>Document Viewer</span>
+                      </div>
+                      <span className="text-[11px] text-[var(--muted)] mt-1.5 leading-snug">
+                        View & download permitted files
+                      </span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between px-1 text-xs">
+                    <span className="text-[11px] text-[var(--muted)]">Need system oversight?</span>
+                    <button
+                      type="button"
+                      onClick={() => setRole(role === "admin" ? "viewer" : "admin")}
+                      className={`text-[11px] font-medium transition ${
+                        role === "admin"
+                          ? "text-rose-400 font-bold underline"
+                          : "text-[var(--muted)] hover:text-rose-400"
+                      }`}
+                    >
+                      {role === "admin" ? "✓ Admin Role Selected" : "Select Admin role"}
+                    </button>
+                  </div>
+                </div>
+              </>
             )}
 
             <div>

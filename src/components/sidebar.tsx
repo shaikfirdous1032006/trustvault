@@ -43,7 +43,7 @@ const NAV_ITEMS = [
     href: "/dashboard/upload",
     label: "Upload",
     icon: Upload,
-    roles: ["owner", "admin"],
+    roles: ["owner"],
   },
   {
     href: "/dashboard/privacy",
