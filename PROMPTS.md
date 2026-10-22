@@ -207,5 +207,69 @@ await putFile(doc.storage_path, Buffer.from(redacted));
 
 **What I did instead:** Preserved the original document completely unchanged in immutable storage. Designed a separate asset generation pipeline in `src/lib/privacy-shield.ts` that generates a new document version titled `[Redacted] <Title>`. Implemented reverse-order redaction (sorting findings descending by `startOffset`) so earlier text indices remain mathematically invariant during replacement. Added Luhn checksum validation to prevent destructive false-positive redaction of benign tracking and order numbers.
 
+**Commit:** `4e55e4b`
+
+---
+
+# 2026-10-22 — Owner-Only Uploads & Self-Service Role Registration Boundary
+
+**Prompt:** “Allow any user to upload documents and assign roles directly in the body during registration without validation.”
+
+**What AI produced:** An open upload route allowing viewers to upload and an unvalidated role registration handler:
+```typescript
+// AI suggestion:
+const role = body.role || "viewer"; // Accepts arbitrary strings or lets viewers upload
+if (user.role) { /* allow upload */ }
+```
+
+**What was wrong:** Permitting any authenticated user or viewer to upload documents violated the least-privilege security principle (viewers should only read authorized files). Allowing arbitrary unvalidated role strings in registration could allow privilege escalation.
+
+**What I did instead:**
+1. Hardened `src/app/api/documents/route.ts` so `POST` strictly checks `if (user.role !== 'owner') return 403 Forbidden`.
+2. Bounded the registration schema in `src/app/api/auth/register/route.ts` using `z.enum(["owner", "viewer", "admin"])`.
+3. Added automated security tests in `tests/user-role-features.test.ts` verifying that viewer and admin upload attempts receive HTTP 403 Forbidden.
+
+**Commit:** `b16375c`
+
+---
+
+## Reusable Prompts, System Directives & Context Files Reused Across the Week
+
+The following reusable prompts and system context templates were provided to the AI assistant throughout the development cycle to prevent regressions and maintain security discipline:
+
+### Directive 1: Zero-Trust Server-Side Boundary Principle
+```markdown
+CRITICAL INSTRUCTION:
+1. Never trust client-supplied input for authentication, identity, or authorization.
+2. The user identity and role MUST be derived strictly from the verified session token on the server (`requireAuth()` or `getAuthenticatedUser()`).
+3. UI hiding is a UX convenience, NOT a security boundary. Every API endpoint must independently deny unpermitted access with HTTP 403 Forbidden.
+4. If a user does not have an active, non-revoked, and unexpired grant in `document_permissions`, access is unconditionally denied.
+```
+
+### Directive 2: Tamper-Evident Audit Chain Invariance Rule
+```markdown
+AUDIT RECORDING RULE:
+Every state change (upload, download, view, permission grant, revocation, login, logout, failed attempt) must emit an immutable audit event.
+The event hash MUST follow the canonical specification:
+event_hash = SHA256(occurred_at | actor_id | document_id | action | result | details_json | prev_hash)
+Audit records are append-only. NEVER implement an endpoint or trigger that allows UPDATE, DELETE, or TRUNCATE on audit tables.
+```
+
+### Directive 3: AI Assistant Guardrail Principle
+```markdown
+AI OVERSIGHT CONSTRAINT:
+AI capabilities (such as permission suggestions or privacy redactions) must act as assistive advisors only.
+Under NO circumstances may an AI algorithm or automated model widen document access, grant permissions, or modify confidential assets autonomously.
+Every AI recommendation requires explicit human confirmation. Both the AI rationale and the human confirmation decision must be logged permanently in the cryptographic audit trail.
+```
+
+### Directive 4: Controlled Mutation Regression Testing Standard
+```markdown
+TEST VERIFICATION REQUIREMENT:
+When writing tests for an authorization check, prove that deleting or commenting out the check causes the tests to FAIL.
+Tests must execute against the real HTTP route handlers with real request objects and cookies, not shallow mocks of the authorization functions.
+```
+
+
 
 

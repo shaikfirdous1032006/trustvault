@@ -9,8 +9,6 @@ import {
   Upload,
   ArrowRight,
   AlertTriangle,
-  CheckCircle2,
-  Clock,
   Sparkles,
   ShieldAlert,
   Sliders,
@@ -472,32 +470,3 @@ function getGreeting(): string {
   return "Good evening";
 }
 
-function formatAction(action: string): string {
-  const map: Record<string, string> = {
-    upload: "uploaded a document",
-    download: "downloaded a document",
-    preview: "viewed a document",
-    update: "updated a document",
-    delete: "deleted a document",
-    restore: "restored a document",
-    permission_grant: "granted permission",
-    permission_revoke: "revoked permission",
-    login: "signed in",
-    login_failure: "failed login attempt",
-    logout: "signed out",
-    search: "searched documents",
-    version_upload: "uploaded a new version",
-  };
-  return map[action] || action;
-}
-
-function formatTimeAgo(dateStr: string): string {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
-
-  if (diff < 60) return "just now";
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
-}

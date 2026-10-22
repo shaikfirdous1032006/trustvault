@@ -345,3 +345,34 @@ To protect against database-level rewriting, TrustVault supports an **External A
 
 **Accepted Risk:** Key is isolated in server environment variables and never checked into version control.
 
+**Automated Test:** `tests/unique-features.test.ts` ("HMAC Checkpoint Signatures: generates valid cryptographic signature for audit chain export").
+
+---
+
+## 29. Non-Owner Document Upload & Registration Role Elevation
+
+**Threat:** A viewer or external unauthenticated client attempts to upload arbitrary files to the platform or forge their role during registration.
+
+**Mitigation:** `POST /api/documents` strictly enforces `if (user.role !== 'owner') return 403 Forbidden` and emits a denied audit log event. The UI hides the Upload link for non-owners, but the backend serves as the authoritative gate. Public registration in `POST /api/auth/register` validates roles through a strict Zod enum (`z.enum(["owner", "viewer", "admin"])`), and passwords are saved with scrypt-hashed credentials.
+
+**Residual Risk:** An authorized owner could upload malicious file content (mitigated by deep magic-byte sniffing and 50MB size caps).
+
+**Accepted Risk:** Low — authenticated owners have legal accountability via the immutable audit trail.
+
+**Automated Test:** `tests/user-role-features.test.ts` ("rejects document upload when user is viewer with 403 Forbidden", "rejects document upload when user is admin with 403 Forbidden", "creates an account with owner role when owner is selected").
+
+---
+
+## 30. AI Agent Autonomous Access Expansion
+
+**Threat:** An AI assistant model running inside the platform autonomously widens document access permissions, bypassing human authorization decisions.
+
+**Mitigation:** The AI assistant strictly functions as a read-only advisor (`ai_suggested: true`). It cannot directly insert rows into `document_permissions`. Access grants require explicit human submission and confirmation (`decision: 'human_confirmed'`). Both the AI's generated rationale and the owner's human confirmation are permanently recorded in the SHA-256 tamper-evident audit chain.
+
+**Residual Risk:** A human owner recklessly accepts an AI suggestion without reading it.
+
+**Accepted Risk:** Acceptable — the human owner assumes full organizational and legal liability, with immutable audit proof recorded in the chain.
+
+**Automated Test:** `tests/document-ai.test.ts`, `tests/api-authorization.test.ts` (verifying human confirmation requirement on permission grants).
+
+
