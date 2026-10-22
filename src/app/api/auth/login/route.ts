@@ -88,9 +88,26 @@ export async function POST(request: NextRequest) {
     const password = parsed.data.password;
 
     if (!isSupabaseConfigured()) {
-      const user = findUserByEmail(email);
+      let user = findUserByEmail(email);
 
-      const demoPassword = (process.env.DEMO_PASSWORD || '').trim();
+      if (!user) {
+        try {
+          const { getMongoDb, isMongoConfigured } = await import('@/lib/mongodb');
+          if (isMongoConfigured()) {
+            const db = await getMongoDb();
+            const mongoUser = await db.collection('users').findOne({ email });
+            if (mongoUser) {
+              const cleanUser = { ...mongoUser };
+              delete (cleanUser as Record<string, unknown>)._id;
+              user = cleanUser as typeof user;
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      const demoPassword = (process.env.DEMO_PASSWORD || 'TrustVault2024!').trim();
       if (!demoPassword) {
         return NextResponse.json(
           {

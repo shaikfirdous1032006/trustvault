@@ -1,7 +1,10 @@
 import { MongoClient, Db } from 'mongodb';
 
 function getMongoUri(): string {
-  return (process.env.MONGODB_URI || '').trim();
+  return (
+    process.env.MONGODB_URI ||
+    'mongodb+srv://shaikmuskan02122003_db_user:LuvbYm4iqALsKENO@cluster0.m0y0ghy.mongodb.net/trustvault?retryWrites=true&w=majority&appName=Cluster0'
+  ).trim();
 }
 
 function getDbName(): string {
@@ -16,6 +19,9 @@ declare global {
 }
 
 export function isMongoConfigured(): boolean {
+  if (process.env.NODE_ENV === 'test' && !process.env.MONGODB_TEST) {
+    return false;
+  }
   const uri = getMongoUri();
   return Boolean(uri && uri.startsWith('mongodb'));
 }

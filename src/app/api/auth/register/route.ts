@@ -125,6 +125,36 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Persist user and credentials directly to MongoDB Atlas for cloud sync
+    try {
+      const { getMongoDb, isMongoConfigured } = await import("@/lib/mongodb");
+      if (isMongoConfigured()) {
+        const db = await getMongoDb();
+        await Promise.all([
+          db.collection("users").updateOne(
+            { email: result.user.email },
+            { $set: result.user },
+            { upsert: true }
+          ),
+          db.collection("credentials").updateOne(
+            { user_id: result.user.id },
+            {
+              $set: {
+                user_id: result.user.id,
+                email: result.user.email,
+                salt: passwordRecord.salt,
+                hash: passwordRecord.hash,
+                updated_at: new Date(),
+              },
+            },
+            { upsert: true }
+          ),
+        ]);
+      }
+    } catch {
+      // ignore
+    }
+
     const isConfiguredOwner =
       Boolean(ownerEmail) && email === ownerEmail;
 
