@@ -31,7 +31,7 @@ const ALLOWED_ROLES: readonly UserRole[] = [
 ];
 
 function getSecret(): string {
-  const secret = process.env.SESSION_SECRET;
+  const secret = (process.env.SESSION_SECRET || '').trim();
 
   if (!secret || secret.length < MIN_SECRET_LENGTH) {
     throw new SessionConfigError(

@@ -90,7 +90,8 @@ export async function POST(request: NextRequest) {
     if (!isSupabaseConfigured()) {
       const user = findUserByEmail(email);
 
-      if (!process.env.DEMO_PASSWORD) {
+      const demoPassword = (process.env.DEMO_PASSWORD || '').trim();
+      if (!demoPassword) {
         return NextResponse.json(
           {
             success: false,
@@ -117,8 +118,8 @@ export async function POST(request: NextRequest) {
         validPassword = verifyPassword(password, credential);
       } else if (isSeededDemo) {
         validPassword = passwordMatches(
-          password,
-          process.env.DEMO_PASSWORD
+          password.trim(),
+          demoPassword
         );
       }
 
