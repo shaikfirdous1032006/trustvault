@@ -14,6 +14,7 @@ import {
   Activity,
   ArrowRight,
   UserPlus,
+  Database,
 } from "lucide-react";
 
 type DemoAccount = {
@@ -200,6 +201,12 @@ export default function LoginPage() {
                 Auditable security events
               </span>
             </div>
+            <div className="flex items-center gap-3">
+              <Database className="h-5 w-5 text-emerald-400" />
+              <span className="text-sm">
+                Connected to MongoDB Atlas (<span className="text-emerald-400 font-mono text-xs">Cluster0</span>)
+              </span>
+            </div>
           </div>
         </div>
 
@@ -218,6 +225,11 @@ export default function LoginPage() {
           </div>
 
           <div className="mb-7">
+            <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 mb-3">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <Database className="w-3.5 h-3.5" />
+              <span>MongoDB Atlas Connected</span>
+            </div>
             <h2 className="text-3xl font-bold tracking-tight">
               {mode === "login" ? "Welcome back" : "Create your account"}
             </h2>

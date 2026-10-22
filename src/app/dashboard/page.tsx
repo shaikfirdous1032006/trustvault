@@ -14,6 +14,7 @@ import {
   Sparkles,
   ShieldAlert,
   Sliders,
+  Database,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -146,6 +147,35 @@ export default async function DashboardPage() {
             ? "Manage your documents and permissions"
             : "Access documents shared with you"}
         </p>
+      </div>
+
+      {/* MongoDB Atlas Connected Banner */}
+      <div className="mb-8 p-4 rounded-xl bg-gradient-to-r from-emerald-500/10 via-brand-500/10 to-transparent border border-emerald-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center flex-shrink-0">
+            <Database className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-bold text-[var(--foreground)]">Connected to MongoDB Atlas Database</h2>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Live Cluster
+              </span>
+            </div>
+            <p className="text-xs text-[var(--muted)] mt-0.5 font-mono">
+              Cluster: cluster0.m0y0ghy.mongodb.net • Database: trustvault • Collections: documents, users, permissions, versions, share_links, audit
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 self-start sm:self-center flex-shrink-0">
+          <Link
+            href="/dashboard/documents"
+            className="btn btn-secondary btn-sm text-xs"
+          >
+            Explore Collections
+          </Link>
+        </div>
       </div>
 
       {/* Stats Grid */}

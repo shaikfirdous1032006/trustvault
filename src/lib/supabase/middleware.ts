@@ -18,6 +18,7 @@ export async function updateSession(request: NextRequest) {
     '/share',
     '/api/public/',
     '/api/health',
+    '/api/database/status',
   ];
 
   const isPublicPath = publicPaths.some((path) =>

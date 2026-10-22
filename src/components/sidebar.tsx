@@ -20,6 +20,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useState } from "react";
+import { DatabaseStatusBadge } from "@/components/database-status-badge";
 
 interface SidebarProps {
   user: User;
@@ -180,6 +181,9 @@ export function Sidebar({ user }: SidebarProps) {
 
         {/* User section */}
         <div className="p-3 border-t border-[var(--sidebar-border)] space-y-2">
+          {/* MongoDB Atlas Live Status */}
+          <DatabaseStatusBadge collapsed={collapsed} />
+
           {/* Collapse toggle (desktop only) */}
           <button
             onClick={() => setCollapsed(!collapsed)}

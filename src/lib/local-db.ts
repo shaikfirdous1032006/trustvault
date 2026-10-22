@@ -262,28 +262,57 @@ function seedStore(): LocalStore {
   return store;
 }
 
+import {
+  initMongoSync,
+  pushStoreToMongo,
+  pushAuditEventToMongo,
+  fetchStoreFromMongo,
+} from '@/lib/mongo-sync';
+
 function readStore(): LocalStore {
   ensureDirs();
   if (!fs.existsSync(STORE_PATH)) {
     const seeded = seedStore();
     fs.writeFileSync(STORE_PATH, JSON.stringify(seeded, null, 2));
+    void initMongoSync(() => seeded, (s) => writeStore(s, false));
     return seeded;
   }
   const store = JSON.parse(fs.readFileSync(STORE_PATH, 'utf8')) as LocalStore;
   // Stores written before share links existed have no key for them; an undefined
   // array here would crash the first read that touches it.
   if (!Array.isArray(store.share_links)) store.share_links = [];
+  void initMongoSync(() => store, (s) => writeStore(s, false));
   return store;
 }
 
-function writeStore(store: LocalStore) {
+function writeStore(store: LocalStore, syncMongo = true) {
   ensureDirs();
   fs.writeFileSync(STORE_PATH, JSON.stringify(store, null, 2));
+  if (syncMongo) {
+    void pushStoreToMongo(store);
+  }
 }
 
 export function getStore(): LocalStore {
   return readStore();
 }
+
+export async function syncMongoStore(): Promise<boolean> {
+  try {
+    const remote = await fetchStoreFromMongo();
+    if (remote) {
+      writeStore(remote, false);
+      return true;
+    } else {
+      const current = readStore();
+      await pushStoreToMongo(current);
+      return true;
+    }
+  } catch {
+    return false;
+  }
+}
+
 
 export function mutateStore<T>(mutator: (store: LocalStore) => T): Promise<T> {
   return withLock(() => {
@@ -382,7 +411,8 @@ export async function appendAudit(
     };
 
     store.audit.push(created);
-    writeStore(store);
+    writeStore(store, false);
+    void pushAuditEventToMongo(created);
     return created;
   });
 }

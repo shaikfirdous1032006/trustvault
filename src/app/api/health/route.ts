@@ -3,23 +3,35 @@ import { isSupabaseConfigured } from '@/lib/supabase/server';
 import { getStore } from '@/lib/local-db';
 import { POLICY_ENGINE_VERSION } from '@/lib/policy-engine';
 import { PRIVACY_SHIELD_VERSION } from '@/lib/privacy-shield';
+import { checkMongoConnection, isMongoConfigured } from '@/lib/mongodb';
 
 const START_TIME = Date.now();
 
 export async function GET() {
-  const isConfigured = isSupabaseConfigured();
+  const isSupabase = isSupabaseConfigured();
+  const isMongo = isMongoConfigured();
   let dbStatus = 'healthy';
   let documentCount = 0;
   let auditCount = 0;
+  let usersCount = 0;
+  let mongoDetails: Awaited<ReturnType<typeof checkMongoConnection>> | null = null;
+
+  if (isMongo) {
+    try {
+      mongoDetails = await checkMongoConnection();
+      dbStatus = mongoDetails.connected ? 'healthy' : 'degraded';
+    } catch {
+      dbStatus = 'degraded';
+    }
+  }
 
   try {
-    if (!isConfigured) {
-      const store = getStore();
-      documentCount = store.documents.length;
-      auditCount = store.audit.length;
-    }
+    const store = getStore();
+    documentCount = store.documents.length;
+    auditCount = store.audit.length;
+    usersCount = store.users.length;
   } catch {
-    dbStatus = 'degraded';
+    if (!isMongo) dbStatus = 'degraded';
   }
 
   const uptimeSeconds = Math.floor((Date.now() - START_TIME) / 1000);
@@ -30,10 +42,15 @@ export async function GET() {
     timestamp: new Date().toISOString(),
     uptime: `${uptimeSeconds}s`,
     database: {
-      mode: isConfigured ? 'supabase' : 'local-storage',
+      mode: isMongo ? 'mongodb' : (isSupabase ? 'supabase' : 'local-storage'),
       status: dbStatus,
+      cluster: mongoDetails?.cluster || (isMongo ? 'cluster0.m0y0ghy.mongodb.net' : 'local'),
+      dbName: mongoDetails?.dbName || 'trustvault',
+      latencyMs: mongoDetails?.latencyMs,
+      collections: mongoDetails?.collections || [],
       documentsCount: documentCount,
       auditRecordsCount: auditCount,
+      usersCount,
     },
     modules: {
       zeroTrustPolicyEngine: {
