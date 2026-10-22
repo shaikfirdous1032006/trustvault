@@ -9,9 +9,11 @@ Every endpoint in TrustVault strictly enforces the **default-deny** security pri
 | Method | Endpoint | Required Role | Required Doc Permission | Audit Event Emitted |
 |---|---|---|---|---|
 | `POST` | `/api/auth/login` | Public (Unauthenticated) | None | `login` (allowed) or `login_failure` (denied) |
+| `POST` | `/api/auth/register` | Public (Unauthenticated) | None | `admin_action` (`account_registration`, role assigned) |
 | `POST` | `/api/auth/logout` | Authenticated | None | `logout` (allowed) |
+| `GET` | `/api/auth/me` | Authenticated | None | None |
 | `GET` | `/api/documents` | Authenticated | RLS-scoped filter | `search` (allowed, if `?search=` present) |
-| `POST` | `/api/documents` | `owner`, `admin` | None (Owner of new doc) | `upload` (allowed/denied) |
+| `POST` | `/api/documents` | `owner` only | None (Owner of new doc) | `upload` (allowed/denied) |
 | `GET` | `/api/documents/:id` | Authenticated | `read` (or Owner) | `preview` (allowed/denied) |
 | `PATCH` | `/api/documents/:id` | Authenticated | `edit` (or Owner) | `update` (allowed/denied) |
 | `DELETE` | `/api/documents/:id` | Authenticated | Owner Only | `delete` (allowed/denied) |
@@ -22,7 +24,7 @@ Every endpoint in TrustVault strictly enforces the **default-deny** security pri
 | `POST` | `/api/documents/:id/permissions` | Authenticated | Owner Only | `permission_grant` (allowed/denied) |
 | `DELETE` | `/api/documents/:id/permissions/:permissionId` | Authenticated | Owner Only | `permission_revoke` (allowed/denied) |
 | `GET` | `/api/documents/:id/audit` | Authenticated | Owner or `admin` | None |
-| `GET` | `/api/admin/audit` | `admin` | None | None |
+| `GET` | `/api/admin/audit` | `admin` | None | Filterable by `?action=auth` for Login/Logout history |
 | `POST` | `/api/admin/audit/verify` | `admin` | None | `admin_action` (allowed/denied) |
 | `GET` | `/api/admin/users` | `admin` | None | None |
 

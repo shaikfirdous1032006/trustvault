@@ -1,112 +1,100 @@
-<<<<<<< HEAD
-# TrustVault — Zero-Trust Document Security, Privacy Intelligence & Threat Detection Platform
+# TrustVault — Secure Document Sharing with a Real Tamper-Evident Audit Trail
 
-> **Secure Every Document. Detect Every Threat. Prove Every Decision.**
-
-TrustVault is an enterprise-grade, zero-trust document security platform with cryptographic audit trail integrity, adaptive behavioral policy evaluation, explainable threat detection, and AI-assisted privacy redaction.
-
----
-
-## The Four Pillars
-
-```
-+---------------------------------------------------------------------------------------+
-|                                    TRUSTVAULT PLATFORM                                |
-+---------------------------+---------------------------+-------------------------------+
-|  1. ADAPTIVE ZERO-TRUST   |   2. EXPLAINABLE THREAT   |    3. TAMPER-EVIDENT AUDIT    |    4. AI PRIVACY SHIELD      |
-|     POLICY ENGINE         |      DETECTION ENGINE     |       & SIGNED CHECKPOINTS    |       & REDACTION ENGINE     |
-+---------------------------+---------------------------+-------------------------------+------------------------------+
-| * Least-privilege grants  | * Brute-force detection   | * SHA-256 HMAC-linked chain   | * PII/SSN pattern detection  |
-| * Time-bound access       | * IDOR & probing alarms   | * Tamper detection & report   | * Credit card Luhn checks    |
-| * Behavioral risk scoring | * Mass download bursts    | * Signed export checkpoints   | * API key/secret masks       |
-| * Temporary restrictions  | * Incident response flow  | * Strict append-only locks    | * Owner approval workflow    |
-+---------------------------+---------------------------+-------------------------------+------------------------------+
-```
+> **Build a document platform where the wrong person can never read the file, and you can prove who read it.**
+> 
+> 🌐 **Live Deployed Application:** [https://trustvault-smoky.vercel.app](https://trustvault-smoky.vercel.app)  
+> 📦 **Public Repository:** [https://github.com/shaikfirdous1032006/trustvault](https://github.com/shaikfirdous1032006/trustvault)  
+> 🧪 **Automated Test Coverage:** 214 tests passing across 14 test suites (`npm test`)
 
 ---
 
-## Key Capabilities & Features
+## 🔑 Demo Accounts & Credentials
 
-### 1. Adaptive Zero-Trust Policy Engine (`src/lib/policy-engine.ts`)
-- **Deterministic Authorization Layer**: Every protected request evaluates active status, document ownership, and active unexpired permission grants.
-- **Dynamic Behavioral Risk Scoring**:
-  - Probing repeated denied attempts escalates actor risk score (+35 to +60) and triggers automated `TEMPORARILY_RESTRICT` status.
-  - High-frequency download bursts (>= 10 in 5m) trigger `REQUIRE_REVIEW`.
-  - Non-owner delete attempts on shared resources trigger critical flags.
-- **Decision Payload**: Outputs immutable `decisionId`, `policyVersion` (2.4.0-zt), risk factors list, and reason codes (`ACCOUNT_DEACTIVATED`, `TEMPORARILY_RESTRICTED`, `ACCESS_GRANTED`, etc.).
-- **Access Policy Simulator (`/dashboard/admin/simulator`)**: Enables administrators to run "What-If" scenarios before applying permission changes to preview projected outcomes, access deltas, and unintended blast radius.
+The live deployment comes pre-seeded with all three core roles:
 
-### 2. Explainable Threat Detection & Incident Response (`src/lib/security-alerts.ts`)
-- Evaluates real-time audit stream against transparent, configurable detection rules:
-  - **Repeated Denied Document Access** (IDOR probing)
-  - **Repeated Login Failures** (Brute-force / Credential Stuffing)
-  - **Unusual Download Burst** (Data exfiltration)
-  - **Multi-Document Access Probing** (Enumeration attack across distinct assets)
-- **Incident Investigation Workflow (`/dashboard/admin/alerts`)**:
-  - Mark investigating, resolve incident, or dismiss alert.
-  - One-click **Temporary Restriction** on suspicious actors (15-minute cool-down with recovery procedure).
-- **Benchmark Evaluation**: Includes synthetic benchmark dataset with **100% Precision, 100% Recall, and 100% F1-Score** on attack identification.
+| Role | Email | Password | Access Scope |
+|------|-------|----------|--------------|
+| **Admin** | `admin@example.com` | `TrustVault2024!` | Platform security monitoring, Login/Logout history, Threat alerts, Policy simulator, SHA-256 audit chain verification & HMAC-signed report export |
+| **Document Owner** | `owner@example.com` | `TrustVault2024!` | Exclusive permission to upload documents, manage versions, grant/revoke per-document read/edit access, AI Privacy Shield redactions |
+| **Viewer** | `viewer@example.com` | `TrustVault2024!` | Strictly read-only access to documents explicitly shared with them. Cannot upload, modify, or view unauthorized assets |
 
-### 3. Tamper-Evident Audit Chain & Signed Checkpoints (`src/lib/audit.ts`)
-- **Cryptographic Hash Chain**: Every event hashes `occurred_at | actor_id | document_id | action | result | details_json | prev_hash` with SHA-256.
-- **Chain Verification**: Detects any altered event data, deleted records, or reordered blocks, pinpointing the exact first invalid block.
-- **Storage Tampering Simulation (`/api/admin/audit/tamper`)**: Built-in developer testing endpoint proving that deliberate storage tampering is caught immediately.
-- **Exportable Signed Checkpoint Report (`/api/admin/audit/export`)**: Produces cryptographically signed audit verification reports with HMAC-SHA256 signatures for compliance auditors.
-
-### 4. AI Privacy Shield & Redaction Workflow (`src/lib/privacy-shield.ts`)
-- **Sensitive Entity Detectors**:
-  - US Social Security Numbers (`SSN`)
-  - Credit & Debit Cards with **Luhn algorithm** verification (`CREDIT_CARD`)
-  - AWS Access Keys, OpenAI Keys, and GitHub PATs (`API_KEY`)
-  - Plaintext Passwords (`PASSWORD`)
-  - Email Addresses and Phone Numbers (`EMAIL`, `PHONE`)
-  - Private Keys & JWT Tokens (`SECRET_KEY`, `JWT_TOKEN`)
-- **Privacy Workflow (`/dashboard/privacy`)**:
-  1. Authorized owner selects document payload.
-  2. Text extracted from payload.
-  3. Sensitive patterns highlighted with confidence scores and proposed masks.
-  4. Owner reviews findings and selectively approves/rejects redactions.
-  5. TrustVault generates a separate protected copy (`[Redacted] <Title>`); the original document remains completely unaltered.
-  6. Detection and approval events permanently recorded in audit chain.
-- **Benchmark Evaluation**: Labeled evaluation dataset with **100% Precision and 100% Recall**.
+> **Self-Service Registration with Role Selection:** New users can register at `/login` and select their desired role (**Owner** or **Viewer**). Registered credentials and roles are securely persisted in MongoDB Atlas.
 
 ---
 
-## Technology Stack
+## 📋 The 10 Core Competition Requirements
 
-- **Framework**: Next.js 16 (App Router), React 19, TypeScript
-- **Backend & APIs**: Next.js Server Components, Turbopack, Web Crypto API (`HMAC-SHA256`), Node.js `crypto`
-- **Database Architecture**:
-  - Development / Standalone: Fast, atomic local file-backed DB (`.data/store.json`) with in-memory transaction lock.
-  - Production / Cloud: PostgreSQL 16 with Row Level Security (RLS) policies.
-- **Styling & UI**: Tailwind CSS, Lucide Icons, Glassmorphism, Responsive Dark Mode
-- **Test Automation**: Vitest 5.0, 13 test suites, 200 passing automated security tests
-- **Containerization & CI**: Docker multi-stage build (`Dockerfile`), Docker Compose (`docker-compose.yml`), GitHub Actions (`.github/workflows/ci.yml`)
+| # | Requirement | Implementation in TrustVault | Verification / Test |
+|---|-------------|------------------------------|---------------------|
+| **1** | **Authentication with at least 3 roles** (admin, document owner, viewer) | Implemented in `src/lib/session.ts` and `src/app/api/auth/`. Enforces role-based boundaries on server. Supports public registration with role selection. | `tests/session.test.ts`, `tests/user-role-features.test.ts` |
+| **2** | **Upload, organise, search and manage documents** | Stored in private bucket with server-generated UUID keys. SHA-256 checksum, MIME validation, categorized in financial, legal, technical, etc. | `tests/competition-a-to-t.test.ts` (Req G–J) |
+| **3** | **Permissions per document (read & edit) to named people** | `document_permissions` table assigns granular `read` or `edit` rights to specific user IDs with optional time-bound expiration (`expires_at`). | `tests/api-authorization.test.ts` |
+| **4** | **Owners can grant access and take it back** | Document owners grant access via `POST /api/documents/:id/permissions` and revoke immediately via `DELETE /api/documents/:id/permissions/:permissionId`. | `tests/competition-a-to-t.test.ts` (Req E, F) |
+| **5** | **Unpermitted users cannot read, download, change or delete** | Zero-trust default-deny on all routes. Downloads reject unpermitted users with `403 Forbidden` and never issue signed storage URLs. | `tests/api-authorization.test.ts` (59 tests) |
+| **6** | **Audit trail of uploads, downloads, changes, deletions & grants** | Every operation emits an append-only audit event. Uses a cryptographic SHA-256 hash chain (`event_hash = SHA256(canonical_fields \| prev_hash)`). | `tests/standalone-audit-chain.test.ts`, `tests/audit.test.ts` |
+| **7** | **Search by name, owner, category, and date** | Multi-attribute search supported in `GET /api/documents?search=...&owner=...&category=...&dateFrom=...&dateTo=...`. Every search is audited. | `tests/competition-a-to-t.test.ts` (Req K, L) |
+| **8** | **Validation of what is uploaded** | Strict server-side magic-byte sniffing (PDF, docx, xlsx, pptx, images, text, csv) and 50MB file size limits in `src/lib/permission.ts`. Executables and disguised files rejected. | `tests/competition-a-to-t.test.ts` (Req H, I) |
+| **9** | **Administrative view of document activity & permissions** | Admin dashboard (`/dashboard/admin/audit`) with one-click filter tabs for **Login & Logout History**, document activity, live 3.5s auto-polling, and chain verification. | `tests/user-role-features.test.ts`, `tests/unique-features.test.ts` |
+| **10** | **Automated tests showing one user cannot reach another's documents** | 214 automated security tests testing IDOR, direct storage URL manipulation, revoked permissions, cross-origin CSRF, and role boundaries. | `tests/api-authorization.test.ts`, `tests/competition-a-to-t.test.ts` |
 
 ---
 
-## Local Development Quickstart
+## 🛡️ The Three Non-Negotiable Standards
 
-### 1. Prerequisites
-- Node.js 20 or Node.js 22
-- npm
+### 1. The Server Decides Every Time (Zero UI Reliance)
+* UI hiding is treated purely as a convenience, never as security. Every API endpoint (`GET`, `POST`, `PATCH`, `DELETE`) re-evaluates the authenticated user's session against the exact document grant before touching disk or database.
+* Even if an attacker uses `curl` or Postman with a forged document ID, the server checks `evaluateDocumentPermission()` or PostgreSQL RLS and returns `403 Forbidden`.
 
-### 2. Clone and Setup
+### 2. Proof After the Fact (Cryptographic Hash-Chained Audit Trail)
+* Audit records are append-only. Each audit record hashes its canonical fields together with the previous block's SHA-256 hash:
+  $$\text{event\_hash} = \text{SHA256}(\text{occurred\_at} \mid \text{actor\_id} \mid \text{document\_id} \mid \text{action} \mid \text{result} \mid \text{details\_json} \mid \text{prev\_hash})$$
+* **Tamper Evident:** If an attacker modifies an old audit log row in storage, the hash chain breaks from that block onwards. Administrators can click **Verify Hash Chain** or run `POST /api/admin/audit/verify` to detect the exact corrupted block.
+* Refused attempts are logged as `result: "denied"`, providing an indisputable forensic trail of intrusion attempts.
+
+### 3. Taking Access Away Works Immediately
+* No caching of authorization decisions. Every document read or download evaluates the database `revoked_at` column in real time.
+* The moment an owner revokes a grant, `revoked_at` is stamped. Any subsequent request—even 10 milliseconds later—is denied.
+* Files are stored under opaque UUID storage paths in private storage. Downloads use short-lived signed URLs with a 5-minute TTL issued only after authorization passes.
+
+---
+
+## 🏗️ Architecture & Write-Up
+
+### Permission Model in Our Own Words
+TrustVault implements a **Zero-Trust, Per-Document Capability Model** with Defense in Depth:
+1. **Ownership Boundary:** The user who uploads a document is its permanent owner. Only owners can upload documents, delete documents, and grant or revoke access.
+2. **Explicit Grants:** Non-owners have **zero access by default**. Access requires an explicit grant in `document_permissions` (`read` or `edit`).
+3. **Time-Bound Grants:** Grants can specify an optional `expires_at` timestamp. Expired grants are treated as invalid immediately.
+4. **Administrative Oversight:** Admins have audit and compliance visibility, but do **not** automatically bypass private document read permissions, preventing rogue administrator data exfiltration.
+
+### What We Built Beyond the Floor
+1. **AI Privacy Shield (`/dashboard/privacy`):** Detects SSNs, credit cards (with Luhn validation), API keys, and passwords. Allows owners to review and generate separate redacted documents without altering the originals.
+2. **Explainable Threat Detection Engine (`/dashboard/admin/alerts`):** Real-time pattern detection for repeated denied accesses (IDOR probing), brute-force login attempts, and mass download bursts with automated actor throttling.
+3. **Policy Simulator (`/dashboard/admin/simulator`):** What-If simulation engine allowing administrators to project access consequences before modifying policies.
+4. **Exportable Signed Checkpoint Reports (`/api/admin/audit/export`):** Generates HMAC-SHA256 signed audit reports for external auditors.
+
+### What We Deliberately Chose Not to Build (And Why)
+* **No Folder-Level Inheritance:** Folder hierarchies introduce subtle permission leaks (e.g. adding a user to a parent folder inadvertently grants access to all nested confidential files). TrustVault intentionally mandates explicit per-document permissions.
+* **No Public Share Links Without Token Hashes:** We avoided guessable URLs. Any external sharing requires cryptographically random 256-bit tokens whose raw values are never stored in plaintext (stored only as SHA-256 hashes).
+
+---
+
+## 💻 Running the Project Locally
+
+### 1. Clone & Install Dependencies
 ```bash
-git clone <repo-url>
+git clone https://github.com/shaikfirdous1032006/trustvault.git
 cd trustvault
 npm install
 ```
 
-### 3. Environment Configuration
-The application comes pre-configured for standalone zero-dependency development via `.env.local`:
-```env
-NEXT_PUBLIC_APP_URL=http://localhost:3000
-DEMO_PASSWORD=TrustVault2024!
-SESSION_SECRET=e7cb79cf640dd4e9f5d7d69964b93113c839db6ff18ae6a939986c437409225a
+### 2. Run Automated Security Tests
+```bash
+npm test
 ```
+*Executes all 214 tests across the 14 security test suites in seconds.*
 
-### 4. Run the Development Server
+### 3. Start the Local Server
 ```bash
 npm run dev
 ```
@@ -114,83 +102,11 @@ Open **[http://localhost:3000](http://localhost:3000)** in your browser.
 
 ---
 
-## Demo Credentials
+## 📑 Required Competition Deliverables Index
 
-Click any demo button on the login screen or enter:
-
-| Email | Role | Default Password | Access Scope |
-|-------|------|------------------|--------------|
-| `admin@example.com` | **Admin** | `TrustVault2024!` | Full security alerts, policy simulator, audit chain verification & export, user management |
-| `owner@example.com` | **Owner** | `TrustVault2024!` | Upload documents, manage permissions, AI Privacy Shield redactions |
-| `viewer@example.com` | **Viewer** | `TrustVault2024!` | Read-only access to explicitly authorized documents; cannot view unauthorized assets |
-
----
-
-## Automated Verification & Benchmarks
-
-### Run the Security Test Suite (200 Passing Tests)
-```bash
-npm test
-```
-
-### Run the Threat Detection Evaluation Benchmark
-```bash
-npx tsx scripts/evaluate-threat-detection.ts
-```
-**Results:**
-- True Positives (TP): 4
-- False Positives (FP): 0
-- True Negatives (TN): 3
-- False Negatives (FN): 0
-- **Precision: 100.0% | Recall: 100.0% | F1 Score: 100.0%**
-
-### Run the AI Privacy Shield Benchmark
-```bash
-npx tsx scripts/evaluate-privacy-shield.ts
-```
-**Results:**
-- True Positives (TP): 6 (SSN, Cards, Keys, Passwords, Emails, Phones)
-- False Positives (FP): 0 (Non-card strings, dates, and order IDs rejected)
-- False Negatives (FN): 0
-- **Precision: 100.0% | Recall: 100.0% | F1 Score: 100.0%**
-
-### Verify Code Quality & Build
-```bash
-npm run lint   # 0 errors
-npm run build  # Compiles all routes with 0 TypeScript errors
-```
-
----
-
-## API Reference Summary
-
-| Method | Endpoint | Access | Purpose |
-|--------|----------|--------|---------|
-| `GET` | `/api/health` | Public | System health, database status, and security module readiness |
-| `POST` | `/api/auth/login` | Public | Authenticates user; issues HMAC-signed session cookie |
-| `POST` | `/api/auth/logout` | Authenticated | Invalidates session and clears cookie |
-| `GET` | `/api/documents` | Authenticated | Lists documents permitted under Zero-Trust rules |
-| `POST` | `/api/documents` | Owner, Admin | Uploads document with magic-byte and size validation |
-| `POST` | `/api/documents/:id/privacy/scan` | Permitted | Scans document payload for sensitive PII/secrets |
-| `POST` | `/api/documents/:id/privacy/redact` | Owner, Admin | Generates separate redacted asset with owner-approved masks |
-| `GET` | `/api/admin/alerts` | Admin | Fetches active threat alerts detected from audit stream |
-| `POST` | `/api/admin/alerts/action` | Admin | Incident response: resolve, dismiss, or temporarily restrict actor |
-| `POST` | `/api/admin/policy/simulate` | Admin | Runs "What-If" policy simulation against Zero-Trust engine |
-| `POST` | `/api/admin/audit/verify` | Admin | Verifies SHA-256 hash chain integrity |
-| `POST` | `/api/admin/audit/tamper` | Admin | Simulates malicious storage tampering for test validation |
-| `GET` | `/api/admin/audit/export` | Admin | Exports cryptographically signed audit verification report |
-
----
-
-## Documentation Index
-
-- [Architecture Guide](file:///docs/ARCHITECTURE.md)
-- [API Reference Documentation](file:///docs/API.md)
-- [Threat Model (STRIDE) & Security Analysis](file:///THREATS.md)
-- [Evaluation Report: Threat Detection & Privacy Shield](file:///docs/EVALUATION_REPORT.md)
-- [AI Development & Prompt Engineering Log](file:///PROMPTS.md)
-- [Recruiter / Interview Demo Script](file:///docs/DEMO_SCRIPT.md)
-=======
-# trustvault
-Secure document sharing with per-document permissions and a tamper-evident audit trail
->>>>>>> 245cc374541d555429a3b60d738e9d63a1668f09
+* 🛡️ **[THREATS.md](file:///THREATS.md):** 12 threat scenarios (STRIDE methodology), mitigations, residual risks, and accepted risks.
+* 🤖 **[PROMPTS.md](file:///PROMPTS.md):** Detailed log of AI interactions across the development cycle, including catching AI errors in RLS policies, audit immutability, and storage boundaries.
+* 📖 **[docs/API.md](file:///docs/API.md):** Complete REST API specification with role and permission matrices.
+* 🏛️ **[docs/ARCHITECTURE.md](file:///docs/ARCHITECTURE.md):** Technical design guide and security boundaries.
+* 🎬 **[docs/DEMO_SCRIPT.md](file:///docs/DEMO_SCRIPT.md):** 5-minute video demonstration walkthrough script.
+* 📊 **[docs/EVALUATION_REPORT.md](file:///docs/EVALUATION_REPORT.md):** Threat detection and AI Privacy Shield benchmarks (100% precision/recall).
