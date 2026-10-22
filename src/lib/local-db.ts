@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { createHash, randomUUID } from 'crypto';
 import type {
   AuditEvent,
@@ -10,9 +11,17 @@ import type {
   User,
 } from '@/lib/types';
 
-const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), '.data');
-const STORE_PATH = path.join(DATA_DIR, 'store.json');
-const FILES_DIR = path.join(DATA_DIR, 'files');
+function resolveDataDir(): string {
+  if (process.env.DATA_DIR) return process.env.DATA_DIR;
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    return path.join(os.tmpdir(), '.data');
+  }
+  return path.join(process.cwd(), '.data');
+}
+
+let DATA_DIR = resolveDataDir();
+let STORE_PATH = path.join(DATA_DIR, 'store.json');
+let FILES_DIR = path.join(DATA_DIR, 'files');
 
 export const DEMO_IDS = {
   admin: 'usr-admin-demo-001',
@@ -62,15 +71,32 @@ function computeEventHash(
 }
 
 function ensureDirs() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.mkdirSync(FILES_DIR, { recursive: true });
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.mkdirSync(FILES_DIR, { recursive: true });
+  } catch {
+    DATA_DIR = path.join(os.tmpdir(), '.data');
+    STORE_PATH = path.join(DATA_DIR, 'store.json');
+    FILES_DIR = path.join(DATA_DIR, 'files');
+    try {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+      fs.mkdirSync(FILES_DIR, { recursive: true });
+    } catch {
+      // ignore
+    }
+  }
 }
 
 function seedFile(name: string, contents: string): { storagePath: string; size: number; checksum: string } {
+  ensureDirs();
   const storagePath = `seed/${name}`;
   const full = path.join(FILES_DIR, storagePath);
-  fs.mkdirSync(path.dirname(full), { recursive: true });
-  fs.writeFileSync(full, contents, 'utf8');
+  try {
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, contents, 'utf8');
+  } catch {
+    // ignore filesystem write errors on serverless environments
+  }
   const buf = Buffer.from(contents, 'utf8');
   return {
     storagePath,
@@ -273,21 +299,35 @@ function readStore(): LocalStore {
   ensureDirs();
   if (!fs.existsSync(STORE_PATH)) {
     const seeded = seedStore();
-    fs.writeFileSync(STORE_PATH, JSON.stringify(seeded, null, 2));
+    try {
+      fs.writeFileSync(STORE_PATH, JSON.stringify(seeded, null, 2));
+    } catch {
+      // ignore
+    }
     void initMongoSync(() => seeded, (s) => writeStore(s, false));
     return seeded;
   }
-  const store = JSON.parse(fs.readFileSync(STORE_PATH, 'utf8')) as LocalStore;
-  // Stores written before share links existed have no key for them; an undefined
-  // array here would crash the first read that touches it.
-  if (!Array.isArray(store.share_links)) store.share_links = [];
-  void initMongoSync(() => store, (s) => writeStore(s, false));
-  return store;
+  try {
+    const store = JSON.parse(fs.readFileSync(STORE_PATH, 'utf8')) as LocalStore;
+    // Stores written before share links existed have no key for them; an undefined
+    // array here would crash the first read that touches it.
+    if (!Array.isArray(store.share_links)) store.share_links = [];
+    void initMongoSync(() => store, (s) => writeStore(s, false));
+    return store;
+  } catch {
+    const seeded = seedStore();
+    void initMongoSync(() => seeded, (s) => writeStore(s, false));
+    return seeded;
+  }
 }
 
 function writeStore(store: LocalStore, syncMongo = true) {
   ensureDirs();
-  fs.writeFileSync(STORE_PATH, JSON.stringify(store, null, 2));
+  try {
+    fs.writeFileSync(STORE_PATH, JSON.stringify(store, null, 2));
+  } catch {
+    // ignore
+  }
   if (syncMongo) {
     void pushStoreToMongo(store);
   }
@@ -368,9 +408,14 @@ export function getShareLinkById(id: string): ShareLink | undefined {
 }
 
 export function putFile(storagePath: string, bytes: Buffer) {
+  ensureDirs();
   const full = path.join(FILES_DIR, storagePath);
-  fs.mkdirSync(path.dirname(full), { recursive: true });
-  fs.writeFileSync(full, bytes);
+  try {
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, bytes);
+  } catch {
+    // ignore
+  }
 }
 
 export function readFileBytes(storagePath: string): Buffer | null {

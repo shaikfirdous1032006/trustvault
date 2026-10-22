@@ -1,6 +1,12 @@
 import { MongoClient, Db } from 'mongodb';
 
-const dbName = process.env.MONGODB_DB || 'trustvault';
+function getMongoUri(): string {
+  return (process.env.MONGODB_URI || '').trim();
+}
+
+function getDbName(): string {
+  return (process.env.MONGODB_DB || 'trustvault').trim();
+}
 
 let client: MongoClient | null = null;
 let clientPromise: Promise<MongoClient> | null = null;
@@ -10,7 +16,8 @@ declare global {
 }
 
 export function isMongoConfigured(): boolean {
-  return Boolean(process.env.MONGODB_URI && process.env.MONGODB_URI.startsWith('mongodb'));
+  const uri = getMongoUri();
+  return Boolean(uri && uri.startsWith('mongodb'));
 }
 
 export async function getMongoClient(): Promise<MongoClient> {
@@ -18,7 +25,7 @@ export async function getMongoClient(): Promise<MongoClient> {
     throw new Error('MONGODB_URI environment variable is not configured');
   }
 
-  const mongoUri = process.env.MONGODB_URI!;
+  const mongoUri = getMongoUri();
 
   if (process.env.NODE_ENV === 'development') {
     // In development mode, use a global variable to preserve connection across HMR
@@ -45,7 +52,7 @@ export async function getMongoClient(): Promise<MongoClient> {
 
 export async function getMongoDb(): Promise<Db> {
   const c = await getMongoClient();
-  return c.db(dbName);
+  return c.db(getDbName());
 }
 
 export async function checkMongoConnection(): Promise<{
@@ -56,6 +63,7 @@ export async function checkMongoConnection(): Promise<{
   collections?: string[];
   error?: string;
 }> {
+  const dbName = getDbName();
   if (!isMongoConfigured()) {
     return {
       connected: false,
@@ -78,7 +86,7 @@ export async function checkMongoConnection(): Promise<{
     // Extract cluster host from URI for display without exposing credentials
     let cluster = 'cluster0.m0y0ghy.mongodb.net';
     try {
-      const match = process.env.MONGODB_URI?.match(/@([^/?]+)/);
+      const match = getMongoUri().match(/@([^/?]+)/);
       if (match && match[1]) {
         cluster = match[1];
       }

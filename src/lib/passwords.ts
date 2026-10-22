@@ -1,6 +1,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import {
   randomBytes,
   scryptSync,
@@ -12,13 +13,24 @@ export type PasswordRecord = {
   hash: string;
 };
 
-const DATA_DIR =
-  process.env.DATA_DIR || path.join(process.cwd(), ".data");
+function resolveDataDir(): string {
+  if (process.env.DATA_DIR) return process.env.DATA_DIR;
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    return path.join(os.tmpdir(), ".data");
+  }
+  return path.join(process.cwd(), ".data");
+}
+
+const DATA_DIR = resolveDataDir();
 
 const CREDENTIALS_PATH = path.join(DATA_DIR, "credentials.json");
 
 function readCredentials(): Record<string, PasswordRecord> {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  } catch {
+    // ignore read-only on serverless
+  }
 
   if (!fs.existsSync(CREDENTIALS_PATH)) {
     return {};
