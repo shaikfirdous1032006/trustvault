@@ -389,7 +389,11 @@ export function withPermissionUsers(
 }
 
 export function findUserByEmail(email: string): User | undefined {
-  return readStore().users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+  const store = readStore();
+  const lower = email.trim().toLowerCase();
+  const found = store.users.find((u) => u.email.toLowerCase() === lower);
+  if (found) return found;
+  return seedStore().users.find((u) => u.email.toLowerCase() === lower);
 }
 
 export function findUserById(id: string): User | undefined {

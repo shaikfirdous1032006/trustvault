@@ -12,6 +12,7 @@ import {
   hashPassword,
   savePasswordRecord,
 } from "@/lib/passwords";
+import { createSessionToken, SESSION_COOKIE } from "@/lib/session";
 
 const registerSchema = z.object({
   full_name: z.string().trim().min(2).max(100),
@@ -172,9 +173,17 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    let token = "";
+    try {
+      token = await createSessionToken(result.user);
+    } catch {
+      // ignore
+    }
+
     const response = NextResponse.json(
       {
         success: true,
+        autoLogin: Boolean(token),
         message:
           "Account created successfully. Sign in to continue.",
         data: {
@@ -188,6 +197,18 @@ export async function POST(request: NextRequest) {
       },
       { status: 201 }
     );
+
+    if (token) {
+      response.cookies.set({
+        name: SESSION_COOKIE,
+        value: token,
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 86400,
+      });
+    }
 
     try {
       const { appendCookieAccount } = await import("@/lib/cookie-accounts");

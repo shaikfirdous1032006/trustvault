@@ -125,7 +125,7 @@ export default function LoginPage() {
         return;
       }
 
-      if (mode === "register") {
+      if (mode === "register" && !data?.autoLogin) {
         setMessage(`Account created successfully with ${role.toUpperCase()} role! You can now sign in.`);
         setMode("login");
         setPassword("");
