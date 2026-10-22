@@ -172,7 +172,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return NextResponse.json(
+    const response = NextResponse.json(
       {
         success: true,
         message:
@@ -188,6 +188,19 @@ export async function POST(request: NextRequest) {
       },
       { status: 201 }
     );
+
+    try {
+      const { appendCookieAccount } = await import("@/lib/cookie-accounts");
+      appendCookieAccount(request, response, {
+        user: result.user,
+        salt: passwordRecord.salt,
+        hash: passwordRecord.hash,
+      });
+    } catch {
+      // ignore
+    }
+
+    return response;
   } catch (error) {
     console.error("[AUTH] Registration failed:", error);
 

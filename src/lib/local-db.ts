@@ -147,6 +147,15 @@ function seedStore(): LocalStore {
       created_at: earlier2,
       updated_at: earlier2,
     },
+    {
+      id: 'b1141308-259c-4ebe-85bc-10056166b582',
+      email: 'shaikfirdous1036@gmail.com',
+      full_name: 'firdous',
+      role: 'owner',
+      is_active: true,
+      created_at: earlier2,
+      updated_at: earlier2,
+    },
   ];
 
   const documents: Document[] = [
