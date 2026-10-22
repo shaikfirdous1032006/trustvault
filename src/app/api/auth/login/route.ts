@@ -2,7 +2,7 @@ import { createClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import { logAuditEvent } from '@/lib/audit';
 import { getRequestMeta } from '@/lib/auth';
 import { DEMO_IDS, findUserByEmail } from '@/lib/local-db';
-import { getPasswordRecord, verifyPassword } from '@/lib/passwords';
+import { getPasswordRecordAsync, verifyPassword } from '@/lib/passwords';
 import {
   createSessionToken,
   SESSION_COOKIE,
@@ -106,7 +106,7 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const credential = getPasswordRecord(user.id);
+      const credential = await getPasswordRecordAsync(user.id);
       const seededDemoIds: string[] = [
         DEMO_IDS.admin,
         DEMO_IDS.owner,

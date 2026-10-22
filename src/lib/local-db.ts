@@ -346,6 +346,7 @@ export function mutateStore<T>(mutator: (store: LocalStore) => T): Promise<T> {
     const store = readStore();
     const result = mutator(store);
     writeStore(store);
+    void pushStoreToMongo(store);
     return result;
   });
 }

@@ -109,6 +109,20 @@ export function savePasswordRecord(
     } catch {
       // Ignored on platforms without Unix file mode support
     }
+    try {
+      import('@/lib/mongodb').then(async ({ getMongoDb, isMongoConfigured }) => {
+        if (isMongoConfigured()) {
+          const db = await getMongoDb();
+          await db.collection('credentials').updateOne(
+            { user_id: userId },
+            { $set: { user_id: userId, salt: record.salt, hash: record.hash, updated_at: new Date() } },
+            { upsert: true }
+          );
+        }
+      }).catch(() => {});
+    } catch {
+      // Ignored
+    }
   } finally {
     if (fs.existsSync(temporaryPath)) {
       try {
@@ -126,6 +140,28 @@ export function getPasswordRecord(
   const record = readCredentials()[userId];
 
   return isValidRecord(record) ? record : undefined;
+}
+
+export async function getPasswordRecordAsync(
+  userId: string
+): Promise<PasswordRecord | undefined> {
+  const local = getPasswordRecord(userId);
+  if (local) return local;
+
+  try {
+    const { getMongoDb, isMongoConfigured } = await import('@/lib/mongodb');
+    if (isMongoConfigured()) {
+      const db = await getMongoDb();
+      const doc = await db.collection('credentials').findOne({ user_id: userId });
+      if (doc && isValidRecord(doc)) {
+        return { salt: doc.salt as string, hash: doc.hash as string };
+      }
+    }
+  } catch {
+    // Ignored
+  }
+
+  return undefined;
 }
 
 export function verifyPassword(
