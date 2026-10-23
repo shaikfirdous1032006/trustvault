@@ -13,8 +13,13 @@ export async function GET(request: NextRequest) {
     const offset = (page - 1) * pageSize;
     const action = searchParams.get('action');
     const result = searchParams.get('result');
+    const email = searchParams.get('email')?.trim().toLowerCase();
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
+
+    const AUTH_ACTIONS = ['login', 'login_failure', 'logout', 'LOGIN_SUCCESS', 'LOGOUT_SUCCESS', 'LOGIN_FAILED'];
+    const DOC_ACTIONS = ['upload', 'download', 'preview', 'version_upload', 'update', 'delete', 'restore'];
+    const PERM_ACTIONS = ['permission_grant', 'permission_revoke', 'share_link_created', 'share_link_revoked'];
 
     if (!isSupabaseConfigured()) {
       let events: AuditEvent[] = [];
@@ -50,13 +55,15 @@ export async function GET(request: NextRequest) {
         events = getStore().audit.slice();
       }
 
-      const AUTH_ACTIONS = ['login', 'login_failure', 'logout'];
-      const DOC_ACTIONS = ['upload', 'download', 'preview', 'version_upload', 'update', 'delete', 'restore'];
-      const PERM_ACTIONS = ['permission_grant', 'permission_revoke', 'share_link_created', 'share_link_revoked'];
-
       if (action && action !== 'all') {
         if (action === 'auth' || action === 'auth_events') {
           events = events.filter((e) => AUTH_ACTIONS.includes(e.action));
+        } else if (action === 'login' || action === 'LOGIN_SUCCESS') {
+          events = events.filter((e) => e.action === 'login' || e.action === 'LOGIN_SUCCESS');
+        } else if (action === 'logout' || action === 'LOGOUT_SUCCESS') {
+          events = events.filter((e) => e.action === 'logout' || e.action === 'LOGOUT_SUCCESS');
+        } else if (action === 'login_failure' || action === 'LOGIN_FAILED') {
+          events = events.filter((e) => e.action === 'login_failure' || e.action === 'LOGIN_FAILED');
         } else if (action === 'documents') {
           events = events.filter((e) => DOC_ACTIONS.includes(e.action));
         } else if (action === 'permissions') {
@@ -64,6 +71,10 @@ export async function GET(request: NextRequest) {
         } else {
           events = events.filter((e) => e.action === action);
         }
+      }
+
+      if (email) {
+        events = events.filter((e) => e.actor_email?.toLowerCase().includes(email));
       }
 
       if (result && result !== 'all') events = events.filter((e) => e.result === result);
@@ -86,8 +97,21 @@ export async function GET(request: NextRequest) {
       .order('occurred_at', { ascending: false })
       .range(offset, offset + pageSize - 1);
 
-    if (action) query = query.eq('action', action);
-    if (result) query = query.eq('result', result);
+    if (action && action !== 'all') {
+      if (action === 'auth' || action === 'auth_events') {
+        query = query.in('action', AUTH_ACTIONS);
+      } else if (action === 'login' || action === 'LOGIN_SUCCESS') {
+        query = query.in('action', ['login', 'LOGIN_SUCCESS']);
+      } else if (action === 'logout' || action === 'LOGOUT_SUCCESS') {
+        query = query.in('action', ['logout', 'LOGOUT_SUCCESS']);
+      } else if (action === 'login_failure' || action === 'LOGIN_FAILED') {
+        query = query.in('action', ['login_failure', 'LOGIN_FAILED']);
+      } else {
+        query = query.eq('action', action);
+      }
+    }
+    if (email) query = query.ilike('actor_email', `%${email}%`);
+    if (result && result !== 'all') query = query.eq('result', result);
     if (startDate) query = query.gte('occurred_at', startDate);
     if (endDate) query = query.lte('occurred_at', endDate);
 

@@ -27,6 +27,13 @@ import {
 } from "lucide-react";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import type { ActivityFeedItem } from "@/lib/types";
+import {
+  formatISTDate,
+  formatISTTime,
+  formatISTDateTime,
+  getActionDisplayLabel,
+  getStatusDisplayLabel,
+} from "@/lib/date-format";
 
 export type ActivityEvent = ActivityFeedItem;
 
@@ -53,10 +60,13 @@ function getActionIcon(action: string, result: string) {
 
   switch (action) {
     case "login":
+    case "LOGIN_SUCCESS":
       return <LogIn className="w-4 h-4 text-emerald-400" />;
     case "login_failure":
+    case "LOGIN_FAILED":
       return <ShieldAlert className="w-4 h-4 text-rose-400" />;
     case "logout":
+    case "LOGOUT_SUCCESS":
       return <LogOut className="w-4 h-4 text-amber-400" />;
     case "register":
       return <UserCheck className="w-4 h-4 text-emerald-400" />;
@@ -634,10 +644,12 @@ export function DashboardRecentActivity({ initialEvents = [] }: DashboardRecentA
                       <div className="flex items-center justify-between gap-2 mt-1">
                         <span
                           className="text-[10px] text-[var(--muted)] flex items-center gap-1 font-mono cursor-help"
-                          title={new Date(event.occurred_at).toLocaleString()}
+                          title={`IST: ${formatISTDateTime(event.occurred_at)} | UTC: ${event.occurred_at}`}
                         >
                           <Clock className="w-3 h-3 text-[var(--muted)]" />
-                          {formatTimeAgo(event.occurred_at)}
+                          <span>{formatTimeAgo(event.occurred_at)}</span>
+                          <span>•</span>
+                          <span className="text-[10px] text-[var(--foreground)] font-semibold">{formatISTTime(event.occurred_at)}</span>
                         </span>
 
                         <div className="flex items-center gap-1.5">
@@ -654,15 +666,15 @@ export function DashboardRecentActivity({ initialEvents = [] }: DashboardRecentA
 
                           <span
                             className={`badge text-[9px] py-0 px-1.5 font-semibold ${
-                              event.result === "allowed" ? "badge-success" : "badge-danger"
+                              getStatusDisplayLabel(event.result, event.action).isSuccess ? "badge-success" : "badge-danger"
                             }`}
                           >
-                            {event.result === "allowed" ? (
+                            {getStatusDisplayLabel(event.result, event.action).isSuccess ? (
                               <CheckCircle2 className="w-2.5 h-2.5 inline mr-0.5" />
                             ) : (
                               <AlertTriangle className="w-2.5 h-2.5 inline mr-0.5" />
                             )}
-                            {event.result}
+                            {getStatusDisplayLabel(event.result, event.action).label}
                           </span>
                         </div>
                       </div>
@@ -670,13 +682,16 @@ export function DashboardRecentActivity({ initialEvents = [] }: DashboardRecentA
                       {/* Expandable Non-Sensitive Details Drawer */}
                       {isExpanded && (
                         <div className="mt-2 pt-2 border-t border-[var(--sidebar-border)] text-[10px] font-mono text-[var(--muted)] bg-[var(--input-bg)] p-2 rounded-md animate-fade-in">
-                          <div className="grid grid-cols-2 gap-1 mb-1">
-                            <div>Event ID: {event.id.slice(0, 8)}...</div>
-                            <div>Action: {event.action}</div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 mb-1">
+                            <div>Event ID: <span className="text-[var(--foreground)] select-all">{event.id}</span></div>
+                            <div>Activity: <span className="text-[var(--foreground)] font-semibold">{getActionDisplayLabel(event.action)}</span></div>
+                            <div>Date (IST): <span className="text-[var(--foreground)]">{formatISTDate(event.occurred_at)}</span></div>
+                            <div>Time (IST): <span className="text-[var(--foreground)]">{formatISTTime(event.occurred_at)}</span></div>
+                            <div>Status: <span className={getStatusDisplayLabel(event.result, event.action).isSuccess ? "text-emerald-400 font-semibold" : "text-rose-400 font-semibold"}>{getStatusDisplayLabel(event.result, event.action).label}</span></div>
+                            <div>Authoritative UTC: {event.occurred_at}</div>
                             {event.target_resource_type && (
                               <div>Resource: {event.target_resource_type}</div>
                             )}
-                            <div>Exact: {new Date(event.occurred_at).toISOString().replace("T", " ").slice(0, 19)} UTC</div>
                           </div>
                           {Object.keys(event.details).length > 0 && (
                             <pre className="text-[9px] text-[var(--foreground)] overflow-x-auto whitespace-pre-wrap bg-black/20 p-1.5 rounded mt-1">

@@ -17,8 +17,19 @@ import {
   Download,
   Users,
   WifiOff,
+  Search,
+  LogIn,
+  LogOut,
+  Copy,
+  Check,
 } from "lucide-react";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import {
+  formatISTDate,
+  formatISTTime,
+  getActionDisplayLabel,
+  getStatusDisplayLabel,
+} from "@/lib/date-format";
 
 interface AuditEvent {
   id: string;
@@ -47,6 +58,9 @@ interface AuditMetrics {
 const ACTIONS = [
   "all",
   "auth",
+  "LOGIN_SUCCESS",
+  "LOGOUT_SUCCESS",
+  "LOGIN_FAILED",
   "login",
   "logout",
   "login_failure",
@@ -79,6 +93,10 @@ export default function AdminAuditPage() {
   const [total, setTotal] = useState(0);
   const [actionFilter, setActionFilter] = useState("all");
   const [resultFilter, setResultFilter] = useState("all");
+  const [emailFilter, setEmailFilter] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [tampering, setTampering] = useState(false);
   const [tamperStatus, setTamperStatus] = useState<string | null>(null);
@@ -211,6 +229,9 @@ export default function AdminAuditPage() {
         params.set("pageSize", pageSize.toString());
         if (actionFilter !== "all") params.set("action", actionFilter);
         if (resultFilter !== "all") params.set("result", resultFilter);
+        if (emailFilter) params.set("email", emailFilter);
+        if (dateFrom) params.set("startDate", dateFrom);
+        if (dateTo) params.set("endDate", dateTo);
 
         const res = await fetch(`/api/admin/audit?${params}`);
         const data = await res.json();
@@ -231,44 +252,84 @@ export default function AdminAuditPage() {
     return () => {
       cancelled = true;
     };
-  }, [page, actionFilter, resultFilter, refreshTrigger, pageSize]);
+  }, [page, actionFilter, resultFilter, emailFilter, dateFrom, dateTo, refreshTrigger, pageSize]);
 
-  // Real-time listener for audit events
+  // Real-time listener for audit events (Supabase postgres_changes + 3s live polling)
   useEffect(() => {
-    if (!isSupabaseConfigured()) {
-      return;
+    let channel: ReturnType<ReturnType<typeof createClient>['channel']> | null = null;
+
+    if (isSupabaseConfigured()) {
+      const supabase = createClient();
+      channel = supabase
+        .channel("admin-audit-stream")
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "audit_events",
+          },
+          (payload) => {
+            const newRow = payload.new as AuditEvent;
+            if (!newRow || !newRow.id) return;
+
+            setEvents((prev) => {
+              if (prev.some((e) => e.id === newRow.id)) return prev;
+              return [newRow, ...prev];
+            });
+            setTotal((prev) => prev + 1);
+            void refreshMetrics();
+          }
+        )
+        .subscribe((status) => {
+          setRealtimeConnected(status === "SUBSCRIBED");
+        });
     }
 
-    const supabase = createClient();
-    const channel = supabase
-      .channel("admin-audit-stream")
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "audit_events",
-        },
-        (payload) => {
-          const newRow = payload.new as AuditEvent;
-          if (!newRow || !newRow.id) return;
+    let localConnectTimer: NodeJS.Timeout | null = null;
+    if (!isSupabaseConfigured()) {
+      localConnectTimer = setTimeout(() => {
+        setRealtimeConnected(true);
+      }, 0);
+    }
 
+    // Active polling ensures zero missed events across multiple authenticated browser sessions
+    const pollInterval = setInterval(async () => {
+      try {
+        const params = new URLSearchParams();
+        params.set("page", "1");
+        params.set("pageSize", pageSize.toString());
+        if (actionFilter !== "all") params.set("action", actionFilter);
+        if (resultFilter !== "all") params.set("result", resultFilter);
+        if (emailFilter) params.set("email", emailFilter);
+        if (dateFrom) params.set("startDate", dateFrom);
+        if (dateTo) params.set("endDate", dateTo);
+
+        const res = await fetch(`/api/admin/audit?${params}`);
+        const data = await res.json();
+        if (data.success && Array.isArray(data.data)) {
           setEvents((prev) => {
-            if (prev.some((e) => e.id === newRow.id)) return prev;
-            return [newRow, ...prev];
+            const existingIds = new Set(prev.map((e) => e.id));
+            const newItems = (data.data as AuditEvent[]).filter((e) => !existingIds.has(e.id));
+            if (newItems.length === 0) return prev;
+            return [...newItems, ...prev];
           });
-          setTotal((prev) => prev + 1);
-          void refreshMetrics();
+          setTotal((prev) => Math.max(prev, data.total || 0));
         }
-      )
-      .subscribe((status) => {
-        setRealtimeConnected(status === "SUBSCRIBED");
-      });
+      } catch {
+        /* ignore polling errors */
+      }
+    }, 3000);
 
     return () => {
-      void supabase.removeChannel(channel);
+      if (localConnectTimer) clearTimeout(localConnectTimer);
+      if (channel) {
+        const supabase = createClient();
+        void supabase.removeChannel(channel);
+      }
+      clearInterval(pollInterval);
     };
-  }, [refreshMetrics]);
+  }, [actionFilter, resultFilter, emailFilter, dateFrom, dateTo, pageSize, refreshMetrics]);
 
   const totalPages = Math.ceil(total / pageSize);
 
@@ -615,8 +676,23 @@ export default function AdminAuditPage() {
         </button>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-6">
+      {/* Filters & Search */}
+      <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 mb-6 flex-wrap">
+        <div className="relative flex-1 min-w-[220px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted)]" />
+          <input
+            type="text"
+            value={emailFilter}
+            onChange={(e) => {
+              setEmailFilter(e.target.value);
+              setPage(1);
+            }}
+            placeholder="Search account email..."
+            className="input pl-10 w-full text-xs"
+            id="audit-email-filter-input"
+          />
+        </div>
+
         <div className="relative">
           <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted)]" />
           <select
@@ -625,7 +701,7 @@ export default function AdminAuditPage() {
               setActionFilter(e.target.value);
               setPage(1);
             }}
-            className="input pl-10 pr-8 appearance-none cursor-pointer min-w-[180px]"
+            className="input pl-10 pr-8 appearance-none cursor-pointer min-w-[180px] text-xs"
             id="audit-action-filter"
           >
             {ACTIONS.map((a) => (
@@ -635,6 +711,7 @@ export default function AdminAuditPage() {
             ))}
           </select>
         </div>
+
         <div className="relative">
           <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted)]" />
           <select
@@ -643,22 +720,48 @@ export default function AdminAuditPage() {
               setResultFilter(e.target.value);
               setPage(1);
             }}
-            className="input pl-10 pr-8 appearance-none cursor-pointer min-w-[140px]"
+            className="input pl-10 pr-8 appearance-none cursor-pointer min-w-[140px] text-xs"
             id="audit-result-filter"
           >
             <option value="all">All Results</option>
-            <option value="allowed">Allowed</option>
-            <option value="denied">Denied</option>
+            <option value="allowed">Success / Allowed</option>
+            <option value="denied">Failed / Denied</option>
           </select>
         </div>
-        <div className="flex-1" />
-        <div className="text-sm text-[var(--muted)] flex items-center gap-1">
-          <Activity className="w-4 h-4" />
-          {total} total events
+
+        <div className="flex items-center gap-2">
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => {
+              setDateFrom(e.target.value);
+              setPage(1);
+            }}
+            className="input text-xs"
+            title="Start date"
+            id="audit-date-from"
+          />
+          <span className="text-xs text-[var(--muted)]">to</span>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => {
+              setDateTo(e.target.value);
+              setPage(1);
+            }}
+            className="input text-xs"
+            title="End date"
+            id="audit-date-to"
+          />
+        </div>
+
+        <div className="text-xs text-[var(--muted)] flex items-center gap-1 ml-auto font-mono">
+          <Activity className="w-3.5 h-3.5 text-brand-400" />
+          {total} events recorded
         </div>
       </div>
 
-      {/* Events Table */}
+      {/* Events Table with Requested Columns */}
       {loading ? (
         <div className="card space-y-3">
           {Array.from({ length: 8 }).map((_, i) => (
@@ -670,65 +773,102 @@ export default function AdminAuditPage() {
           <table>
             <thead>
               <tr>
-                <th>Time</th>
-                <th>Actor</th>
-                <th>Action</th>
-                <th>Result</th>
-                <th>Document / Resource</th>
-                <th>Description / Details</th>
-                <th className="hidden lg:table-cell">Hash</th>
+                <th className="font-semibold text-xs text-[var(--foreground)]">Account</th>
+                <th className="font-semibold text-xs text-[var(--foreground)]">Activity</th>
+                <th className="font-semibold text-xs text-[var(--foreground)]">Date (IST)</th>
+                <th className="font-semibold text-xs text-[var(--foreground)]">Time (IST)</th>
+                <th className="font-semibold text-xs text-[var(--foreground)]">Status</th>
+                <th className="font-semibold text-xs text-[var(--foreground)]">Event ID</th>
+                <th className="font-semibold text-xs text-[var(--foreground)]">Authoritative UTC Timestamp</th>
+                <th className="hidden lg:table-cell font-semibold text-xs text-[var(--foreground)]">SHA-256 Hash</th>
               </tr>
             </thead>
             <tbody>
               {events.map((event) => {
-                const details = event.details_jsonb || {};
-                const description = (details.description as string) || null;
+                const statusInfo = getStatusDisplayLabel(event.result, event.action);
+                const actionLabel = getActionDisplayLabel(event.action);
+                const dateStr = formatISTDate(event.occurred_at);
+                const timeStr = formatISTTime(event.occurred_at);
+                const isCopied = copiedId === event.id;
 
                 return (
-                  <tr key={event.id}>
-                    <td className="whitespace-nowrap">
-                      <div className="flex items-center gap-1.5 text-xs">
-                        <Clock className="w-3 h-3 text-[var(--muted)]" />
-                        {new Date(event.occurred_at).toLocaleString()}
+                  <tr key={event.id} className="hover:bg-[var(--input-bg)]/40 transition-colors">
+                    <td className="text-xs">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-brand-500/10 text-brand-400 flex items-center justify-center font-bold text-[10px] flex-shrink-0">
+                          {event.actor_email ? event.actor_email[0].toUpperCase() : 'S'}
+                        </div>
+                        <div>
+                          <span className="font-mono font-medium text-[var(--foreground)]">
+                            {event.actor_email || 'System'}
+                          </span>
+                          {event.actor_id && (
+                            <p className="text-[10px] text-[var(--muted)] font-mono">
+                              ID: {event.actor_id.slice(0, 8)}...
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </td>
-                    <td className="text-xs">
-                      {event.actor_email || (
-                        <span className="text-[var(--muted)]">System</span>
-                      )}
-                    </td>
                     <td>
-                      <span className="badge badge-neutral text-xs">
-                        {formatAction(event.action)}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {event.action.includes('login') || event.action === 'LOGIN_SUCCESS' ? (
+                          <LogIn className="w-3.5 h-3.5 text-emerald-400" />
+                        ) : event.action.includes('logout') || event.action === 'LOGOUT_SUCCESS' ? (
+                          <LogOut className="w-3.5 h-3.5 text-amber-400" />
+                        ) : event.action === 'LOGIN_FAILED' || event.action === 'login_failure' ? (
+                          <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+                        ) : (
+                          <Activity className="w-3.5 h-3.5 text-brand-400" />
+                        )}
+                        <span className="badge badge-neutral text-xs font-semibold">
+                          {actionLabel}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="text-xs whitespace-nowrap font-medium text-[var(--foreground)]">
+                      {dateStr}
+                    </td>
+                    <td className="text-xs whitespace-nowrap font-mono text-[var(--foreground)]">
+                      <div className="flex items-center gap-1 font-semibold">
+                        <Clock className="w-3 h-3 text-[var(--muted)]" />
+                        <span>{timeStr}</span>
+                      </div>
                     </td>
                     <td>
                       <span
-                        className={`badge ${
-                          event.result === "allowed"
-                            ? "badge-success"
-                            : "badge-danger"
+                        className={`badge text-[11px] font-semibold ${
+                          statusInfo.isSuccess ? 'badge-success' : 'badge-danger'
                         }`}
                       >
-                        {event.result === "allowed" ? (
+                        {statusInfo.isSuccess ? (
                           <CheckCircle2 className="w-3 h-3 mr-1" />
                         ) : (
                           <AlertTriangle className="w-3 h-3 mr-1" />
                         )}
-                        {event.result}
+                        {statusInfo.label}
                       </span>
                     </td>
-                    <td className="text-xs font-mono text-[var(--muted)]">
-                      {event.document_id
-                        ? event.document_id.substring(0, 8) + "..."
-                        : (details.target_resource_type as string) || "—"}
+                    <td className="text-[11px] font-mono text-[var(--muted)] whitespace-nowrap">
+                      <button
+                        onClick={() => {
+                          void navigator.clipboard.writeText(event.id);
+                          setCopiedId(event.id);
+                          setTimeout(() => setCopiedId(null), 2000);
+                        }}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[var(--input-bg)] border border-[var(--card-border)] hover:border-brand-500/40 transition text-[10px] cursor-pointer"
+                        title="Click to copy full Event ID"
+                      >
+                        <span>{event.id.slice(0, 8)}...</span>
+                        {isCopied ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5 text-[var(--muted)]" />}
+                      </button>
                     </td>
-                    <td className="text-xs text-[var(--foreground)] max-w-[260px] truncate" title={description || JSON.stringify(details)}>
-                      {description || (Object.keys(details).length > 0 ? JSON.stringify(details).substring(0, 60) : "—")}
+                    <td className="text-[11px] font-mono text-[var(--muted)] whitespace-nowrap">
+                      {event.occurred_at}
                     </td>
                     <td className="hidden lg:table-cell">
                       <code className="text-[10px] text-[var(--muted)] font-mono">
-                        {event.event_hash.substring(0, 12)}...
+                        {event.event_hash ? `${event.event_hash.substring(0, 12)}...` : '—'}
                       </code>
                     </td>
                   </tr>

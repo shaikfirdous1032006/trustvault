@@ -51,11 +51,11 @@ export async function POST(request: NextRequest) {
     await logAuditEvent({
       actorId: null,
       actorEmail: null,
-      action: 'login_failure',
+      action: 'LOGIN_FAILED',
       result: 'denied',
       ipAddress,
       userAgent,
-      details: { reason: 'Rate limit exceeded' },
+      details: { reason: 'Rate limit exceeded', status: 'Failed', outcome: 'FAILED', action_label: 'Login Failed' },
     });
 
     return NextResponse.json(
@@ -93,11 +93,11 @@ export async function POST(request: NextRequest) {
         await logAuditEvent({
           actorId: null,
           actorEmail: normalizedEmail,
-          action: 'login_failure',
+          action: 'LOGIN_FAILED',
           result: 'denied',
           ipAddress,
           userAgent,
-          details: { reason: 'User not found' },
+          details: { reason: 'User not found', status: 'Failed', outcome: 'FAILED', action_label: 'Login Failed' },
         });
 
         return NextResponse.json(
@@ -129,11 +129,11 @@ export async function POST(request: NextRequest) {
         await logAuditEvent({
           actorId: null,
           actorEmail: normalizedEmail,
-          action: 'login_failure',
+          action: 'LOGIN_FAILED',
           result: 'denied',
           ipAddress,
           userAgent,
-          details: { reason: 'Incorrect password' },
+          details: { reason: 'Incorrect password', status: 'Failed', outcome: 'FAILED', action_label: 'Login Failed' },
         });
 
         return NextResponse.json(
@@ -146,11 +146,11 @@ export async function POST(request: NextRequest) {
         await logAuditEvent({
           actorId: user.id,
           actorEmail: user.email,
-          action: 'login_failure',
+          action: 'LOGIN_FAILED',
           result: 'denied',
           ipAddress,
           userAgent,
-          details: { reason: 'Account inactive' },
+          details: { reason: 'Account inactive', status: 'Failed', outcome: 'FAILED', action_label: 'Login Failed' },
         });
 
         return NextResponse.json(
@@ -162,10 +162,11 @@ export async function POST(request: NextRequest) {
       await logAuditEvent({
         actorId: user.id,
         actorEmail: user.email,
-        action: 'login',
+        action: 'LOGIN_SUCCESS',
         result: 'allowed',
         ipAddress,
         userAgent,
+        details: { status: 'Success', outcome: 'SUCCESS', action_label: 'Signed In', role: user.role },
       });
 
       const token = await createSessionToken(user);
@@ -198,11 +199,11 @@ export async function POST(request: NextRequest) {
       await logAuditEvent({
         actorId: null,
         actorEmail: normalizedEmail,
-        action: 'login_failure',
+        action: 'LOGIN_FAILED',
         result: 'denied',
         ipAddress,
         userAgent,
-        details: { reason: 'Invalid credentials' },
+        details: { reason: 'Invalid credentials', status: 'Failed', outcome: 'FAILED', action_label: 'Login Failed' },
       });
 
       return NextResponse.json(
@@ -221,11 +222,11 @@ export async function POST(request: NextRequest) {
       await logAuditEvent({
         actorId: data.user.id,
         actorEmail: data.user.email || normalizedEmail,
-        action: 'login_failure',
+        action: 'LOGIN_FAILED',
         result: 'denied',
         ipAddress,
         userAgent,
-        details: { reason: 'Account inactive' },
+        details: { reason: 'Account inactive', status: 'Failed', outcome: 'FAILED', action_label: 'Login Failed' },
       });
 
       return NextResponse.json(
@@ -237,10 +238,11 @@ export async function POST(request: NextRequest) {
     await logAuditEvent({
       actorId: data.user.id,
       actorEmail: data.user.email || normalizedEmail,
-      action: 'login',
+      action: 'LOGIN_SUCCESS',
       result: 'allowed',
       ipAddress,
       userAgent,
+      details: { status: 'Success', outcome: 'SUCCESS', action_label: 'Signed In', role: profile.role || 'viewer' },
     });
 
     const token = await createSessionToken({

@@ -69,12 +69,15 @@ export function formatAuditDescription(params: AuditLogParams): string {
 
   switch (params.action) {
     case 'login':
+    case 'LOGIN_SUCCESS':
       return `${actor} successfully signed in`;
     case 'login_failure':
+    case 'LOGIN_FAILED':
       return params.result === 'denied'
         ? `Failed sign-in attempt for ${actor}${reason ? ` (${reason})` : ''}`
         : `Sign-in attempt for ${actor}`;
     case 'logout':
+    case 'LOGOUT_SUCCESS':
       return `${actor} signed out`;
     case 'register':
       return `${actor} registered a new account`;

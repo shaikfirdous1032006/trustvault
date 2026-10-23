@@ -13,6 +13,18 @@ export async function POST(request: NextRequest) {
   try {
     const user = await getAuthenticatedUser();
 
+    if (user) {
+      await logAuditEvent({
+        actorId: user.id,
+        actorEmail: user.email,
+        action: 'LOGOUT_SUCCESS',
+        result: 'allowed',
+        ipAddress,
+        userAgent,
+        details: { status: 'Success', outcome: 'SUCCESS', action_label: 'Signed Out' },
+      });
+    }
+
     if (isSupabaseConfigured()) {
       try {
         const supabase = await createClient();
@@ -20,17 +32,6 @@ export async function POST(request: NextRequest) {
       } catch {
         // ignore
       }
-    }
-
-    if (user) {
-      await logAuditEvent({
-        actorId: user.id,
-        actorEmail: user.email,
-        action: 'logout',
-        result: 'allowed',
-        ipAddress,
-        userAgent,
-      });
     }
 
     const res = NextResponse.json({ success: true, message: 'Logged out' });

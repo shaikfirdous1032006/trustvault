@@ -9,7 +9,7 @@ import type { ActivityFeedItem, AuditAction, AuditResult } from '@/lib/types';
 export const dynamic = 'force-dynamic';
 
 const CATEGORY_ACTIONS: Record<string, string[]> = {
-  auth: ['login', 'logout', 'login_failure', 'register', 'register_failure'],
+  auth: ['login', 'logout', 'login_failure', 'LOGIN_SUCCESS', 'LOGOUT_SUCCESS', 'LOGIN_FAILED', 'register', 'register_failure'],
   documents: ['upload', 'download', 'preview', 'update', 'delete', 'restore', 'version_upload'],
   permissions: [
     'permission_grant',
@@ -21,7 +21,7 @@ const CATEGORY_ACTIONS: Record<string, string[]> = {
     'share_link_denied',
   ],
   admin: ['admin_action', 'role_change', 'account_activated', 'account_deactivated'],
-  security: ['security_alert', 'login_failure', 'share_link_denied'],
+  security: ['security_alert', 'login_failure', 'LOGIN_FAILED', 'share_link_denied'],
 };
 
 export async function GET(request: NextRequest) {

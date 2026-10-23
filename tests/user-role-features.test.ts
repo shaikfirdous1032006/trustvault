@@ -196,7 +196,7 @@ describe('User Role Features: Registration, Owner-Only Uploads & Admin Login/Log
       expect(Array.isArray(data.data)).toBe(true);
 
       for (const event of data.data) {
-        expect(['login', 'logout', 'login_failure']).toContain(event.action);
+        expect(['login', 'logout', 'login_failure', 'LOGIN_SUCCESS', 'LOGOUT_SUCCESS', 'LOGIN_FAILED']).toContain(event.action);
       }
     });
 

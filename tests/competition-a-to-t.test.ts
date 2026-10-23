@@ -441,7 +441,7 @@ describe('P–S: credential handling', () => {
   it('the throttle records the failed attempts rather than swallowing them', async () => {
     await login(loginBody('viewer@example.com', 'wrong-one'));
     await login(loginBody('viewer@example.com', 'wrong-two'));
-    const failures = getStore().audit.filter((e) => e.action === 'login_failure');
+    const failures = getStore().audit.filter((e) => e.action === 'login_failure' || e.action === 'LOGIN_FAILED');
     expect(failures.length).toBeGreaterThanOrEqual(2);
     expect(failures.every((e) => e.result === 'denied')).toBe(true);
   });
