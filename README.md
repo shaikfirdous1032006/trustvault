@@ -4,7 +4,7 @@
 > 
 > 🌐 **Live Deployed Application:** [https://trustvault-smoky.vercel.app](https://trustvault-smoky.vercel.app)  
 > 📦 **Public Repository:** [https://github.com/shaikfirdous1032006/trustvault](https://github.com/shaikfirdous1032006/trustvault)  
-> 🧪 **Automated Test Coverage:** 214 tests passing across 14 test suites (`npm test`)  
+> 🧪 **Automated Test Coverage:** 271 tests passing across 19 test suites (`npm test`)  
 > 🎬 **Video Demonstration Walkthrough:** [docs/DEMO_SCRIPT.md](file:///docs/DEMO_SCRIPT.md) *(Recordings can be viewed following this 5-minute walkthrough)*
 
 ---
@@ -15,11 +15,11 @@ The live deployment comes pre-seeded with all three core roles:
 
 | Role | Email | Password | Access Scope |
 |------|-------|----------|--------------|
-| **Admin** | `admin@example.com` | `TrustVault2024!` | Platform security monitoring, Login/Logout history, Threat alerts, Policy simulator, SHA-256 audit chain verification & HMAC-signed report export |
+| **Admin** | `admin@example.com` | `TrustVault2024!` | Platform security monitoring, Real-time Login/Logout history, Threat alerts, Policy simulator, SHA-256 audit chain verification & HMAC-signed report export |
 | **Document Owner** | `owner@example.com` | `TrustVault2024!` | Exclusive permission to upload documents, manage versions, grant/revoke per-document read/edit access, AI Privacy Shield redactions |
 | **Viewer** | `viewer@example.com` | `TrustVault2024!` | Strictly read-only access to documents explicitly shared with them. Cannot upload, modify, or view unauthorized assets |
 
-> **Self-Service Registration with Role Selection:** New users can register at `/login` and select their desired role (**Owner** or **Viewer**). Registered credentials and roles are securely persisted in MongoDB Atlas.
+> **Self-Service Registration with Role Selection:** New users can register at `/login` and select their desired role (**Owner** or **Viewer**). Registered credentials and roles are securely persisted in MongoDB Atlas or Supabase PostgreSQL.
 
 ---
 
@@ -35,8 +35,8 @@ The live deployment comes pre-seeded with all three core roles:
 | **6** | **Audit trail of uploads, downloads, changes, deletions & grants** | Every operation emits an append-only audit event. Uses a cryptographic SHA-256 hash chain (`event_hash = SHA256(canonical_fields \| prev_hash)`). | `tests/standalone-audit-chain.test.ts`, `tests/audit.test.ts` |
 | **7** | **Search by name, owner, category, and date** | Multi-attribute search supported in `GET /api/documents?search=...&owner=...&category=...&dateFrom=...&dateTo=...`. Every search is audited. | `tests/competition-a-to-t.test.ts` (Req K, L) |
 | **8** | **Validation of what is uploaded** | Strict server-side magic-byte sniffing (PDF, docx, xlsx, pptx, images, text, csv) and 50MB file size limits in `src/lib/permission.ts`. Executables and disguised files rejected. | `tests/competition-a-to-t.test.ts` (Req H, I) |
-| **9** | **Administrative view of document activity & permissions** | Admin dashboard (`/dashboard/admin/audit`) with one-click filter tabs for **Login & Logout History**, document activity, live 3.5s auto-polling, and chain verification. | `tests/user-role-features.test.ts`, `tests/unique-features.test.ts` |
-| **10** | **Automated tests showing one user cannot reach another's documents** | 214 automated security tests testing IDOR, direct storage URL manipulation, revoked permissions, cross-origin CSRF, and role boundaries. | `tests/api-authorization.test.ts`, `tests/competition-a-to-t.test.ts` |
+| **9** | **Administrative view of document activity & permissions** | Admin dashboard (`/dashboard/admin/audit`) with live Real-Time Login/Logout activity, IST timestamping (`Asia/Kolkata`), multi-filter search, and chain verification. | `tests/admin-login-logout-activity.test.ts`, `tests/user-role-features.test.ts` |
+| **10** | **Automated tests showing one user cannot reach another's documents** | 271 automated security tests testing IDOR, direct storage URL manipulation, revoked permissions, cross-origin CSRF, and role boundaries. | `tests/api-authorization.test.ts`, `tests/competition-a-to-t.test.ts` |
 
 ---
 
@@ -93,13 +93,37 @@ npm install
 ```bash
 npm test
 ```
-*Executes all 214 tests across the 14 security test suites in seconds.*
+*Executes all 271 tests across the 19 security and integration test suites in seconds.*
 
 ### 3. Start the Local Server
 ```bash
 npm run dev
 ```
 Open **[http://localhost:3000](http://localhost:3000)** in your browser.
+
+---
+
+## 🗄️ Production Database Configuration
+
+TrustVault supports dual enterprise database configurations:
+
+### Option A: MongoDB Atlas (Document & Credential Store)
+1. In your [MongoDB Atlas Dashboard](https://cloud.mongodb.com):
+   - Navigate to **Security -> Network Access**.
+   - Click **Add IP Address** and select **Allow Access from Anywhere** (`0.0.0.0/0`) so that cloud serverless environments (e.g. Vercel) can establish TLS connections without TLS Alert 80.
+2. In your Vercel project environment variables:
+   - `MONGODB_URI`: `mongodb+srv://<username>:<password>@cluster0.xxx.mongodb.net/trustvault?retryWrites=true&w=majority`
+   - `MONGODB_DB`: `trustvault`
+
+### Option B: Supabase PostgreSQL (Row-Level Security & Realtime)
+1. Run the versioned SQL migrations in the Supabase SQL Editor:
+   - `supabase/migrations/001_initial_schema.sql` (Creates users, documents, permissions, versions, audit_events)
+   - `supabase/migrations/002_share_links.sql` (External share tokens and access limits)
+   - `supabase/migrations/003_audit_realtime_and_security.sql` (Enables Supabase Realtime publication on `audit_events` and RLS trigger)
+2. In your Vercel environment variables:
+   - `NEXT_PUBLIC_SUPABASE_URL`: `https://<your-project-id>.supabase.co`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`: `<anon-key>`
+   - `SUPABASE_SERVICE_ROLE_KEY`: `<service-role-key>` (Server-side only)
 
 ---
 

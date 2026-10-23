@@ -62,7 +62,9 @@ const DETECTION_RULES: DetectionRule[] = [
     title: 'Repeated Login Failures',
     description: 'Multiple failed login attempts — possible credential stuffing or brute-force attack.',
     severity: 'high',
-    match: (e) => e.action === 'login_failure' && e.result === 'denied',
+    match: (e) =>
+      (e.action === 'login_failure' || e.action === 'LOGIN_FAILED') &&
+      e.result === 'denied',
     threshold: 5,
     windowMinutes: 10,
     groupBy: (e) => e.actor_email || e.ip_hash || 'unknown',
