@@ -4,7 +4,7 @@ import { createHash } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { appendAudit, getStore } from '@/lib/local-db';
 
-interface AuditLogParams {
+export interface AuditLogParams {
   actorId: string | null;
   actorEmail: string | null;
   documentId?: string | null;
@@ -13,6 +13,9 @@ interface AuditLogParams {
   ipAddress?: string | null;
   userAgent?: string | null;
   requestId?: string;
+  description?: string;
+  targetResourceType?: 'document' | 'user' | 'permission' | 'share_link' | 'system' | string;
+  targetResourceId?: string | null;
   details?: Record<string, unknown>;
 }
 
@@ -29,6 +32,141 @@ function sha256(data: string): string {
 function hashPii(value: string | null | undefined): string | null {
   if (!value) return null;
   return sha256(value);
+}
+
+/**
+ * Strip sensitive credentials (passwords, tokens, secret keys, file contents) from audit details.
+ */
+function sanitizeAuditDetails(details?: Record<string, unknown>): Record<string, unknown> {
+  if (!details || typeof details !== 'object') return {};
+  const sensitiveRegex = /password|secret|bearer|token|cookie|credential|content_bytes|buffer/i;
+  const clean: Record<string, unknown> = {};
+
+  for (const [k, v] of Object.entries(details)) {
+    if (sensitiveRegex.test(k)) {
+      clean[k] = '[REDACTED]';
+      continue;
+    }
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      clean[k] = sanitizeAuditDetails(v as Record<string, unknown>);
+    } else {
+      clean[k] = v;
+    }
+  }
+  return clean;
+}
+
+/**
+ * Generate a consistent, human-readable description for an audit event.
+ */
+export function formatAuditDescription(params: AuditLogParams): string {
+  if (params.description) return params.description;
+
+  const actor = params.actorEmail || (params.actorId ? `User (${params.actorId.slice(0, 8)})` : 'System');
+  const details = params.details || {};
+  const docTitle = (details.file_name as string) || (details.title as string) || (details.document_title as string) || (params.documentId ? `Document (${params.documentId.slice(0, 8)}...)` : '');
+  const reason = details.reason ? String(details.reason) : '';
+
+  switch (params.action) {
+    case 'login':
+      return `${actor} successfully signed in`;
+    case 'login_failure':
+      return params.result === 'denied'
+        ? `Failed sign-in attempt for ${actor}${reason ? ` (${reason})` : ''}`
+        : `Sign-in attempt for ${actor}`;
+    case 'logout':
+      return `${actor} signed out`;
+    case 'register':
+      return `${actor} registered a new account`;
+    case 'register_failure':
+      return `Registration attempt failed for ${actor}${reason ? ` (${reason})` : ''}`;
+    case 'upload':
+    case 'version_upload':
+      return params.result === 'denied'
+        ? `${actor} was denied permission to upload ${docTitle || 'document'}${reason ? ` (${reason})` : ''}`
+        : `${actor} uploaded ${docTitle || 'a new document'}`;
+    case 'download':
+      return params.result === 'denied'
+        ? `${actor} was denied permission to download ${docTitle || 'document'}${reason ? ` (${reason})` : ''}`
+        : `${actor} downloaded ${docTitle || 'a document'}`;
+    case 'preview':
+      return params.result === 'denied'
+        ? `${actor} was denied preview access to ${docTitle || 'document'}${reason ? ` (${reason})` : ''}`
+        : `${actor} previewed ${docTitle || 'a document'}`;
+    case 'update':
+      return params.result === 'denied'
+        ? `${actor} was denied permission to update ${docTitle || 'document'}${reason ? ` (${reason})` : ''}`
+        : `${actor} updated ${docTitle || 'a document'}`;
+    case 'delete':
+      return params.result === 'denied'
+        ? `${actor} was denied permission to delete ${docTitle || 'document'}${reason ? ` (${reason})` : ''}`
+        : `${actor} deleted ${docTitle || 'a document'}`;
+    case 'restore':
+      return `${actor} restored ${docTitle || 'a document'}`;
+    case 'permission_grant': {
+      const target = (details.target_user_email as string) || 'a user';
+      const level = (details.permission_level as string) || 'access';
+      return params.result === 'denied'
+        ? `${actor} was denied granting ${level} on ${docTitle || 'document'} to ${target}${reason ? ` (${reason})` : ''}`
+        : `${actor} granted ${level} on ${docTitle || 'document'} to ${target}`;
+    }
+    case 'permission_revoke': {
+      const target = (details.target_user_email as string) || 'a user';
+      return params.result === 'denied'
+        ? `${actor} was denied revoking access on ${docTitle || 'document'} for ${target}${reason ? ` (${reason})` : ''}`
+        : `${actor} revoked access on ${docTitle || 'document'} for ${target}`;
+    }
+    case 'share_link_created':
+      return `${actor} created external share link for ${docTitle || 'document'}`;
+    case 'share_link_revoked':
+      return `${actor} revoked external share link for ${docTitle || 'document'}`;
+    case 'share_link_viewed':
+      return `External viewer accessed shared document ${docTitle || ''}`;
+    case 'share_link_denied':
+      return `External access denied to share link${reason ? ` (${reason})` : ''}`;
+    case 'role_change': {
+      const target = (details.target_user_email as string) || (details.target_user_id as string) || 'user';
+      const newRole = (details.new_role as string) || 'role';
+      return `${actor} updated role for ${target} to ${newRole}`;
+    }
+    case 'account_activated': {
+      const target = (details.target_user_email as string) || (details.target_user_id as string) || 'user';
+      return `${actor} activated account for ${target}`;
+    }
+    case 'account_deactivated': {
+      const target = (details.target_user_email as string) || (details.target_user_id as string) || 'user';
+      return `${actor} deactivated account for ${target}`;
+    }
+    case 'permission_update': {
+      const target = (details.target_user_email as string) || 'a user';
+      const level = (details.permission_level as string) || 'access';
+      return params.result === 'denied'
+        ? `${actor} was denied updating permissions on ${docTitle || 'document'} for ${target}${reason ? ` (${reason})` : ''}`
+        : `${actor} updated permission to ${level} on ${docTitle || 'document'} for ${target}`;
+    }
+    case 'user_created': {
+      const target = (details.target_user_email as string) || (details.target_user_id as string) || 'a user';
+      const role = (details.assigned_role as string) || (details.new_role as string) || 'user';
+      return params.result === 'denied'
+        ? `${actor} failed to create user account for ${target}${reason ? ` (${reason})` : ''}`
+        : `${actor} created user account for ${target} with role ${role}`;
+    }
+    case 'profile_update': {
+      return params.result === 'denied'
+        ? `${actor} was denied updating profile${reason ? ` (${reason})` : ''}`
+        : `${actor} updated profile details`;
+    }
+    case 'admin_action': {
+      const op = (details.operation as string) || 'Administrative action';
+      return `${actor} performed administrative operation: ${op}`;
+    }
+    case 'security_alert':
+      return `Security Alert: ${reason || 'Suspicious activity detected'}`;
+    case 'search':
+      return `${actor} performed a document catalog search`;
+    default:
+      return `${actor} performed ${params.action}${docTitle ? ` on ${docTitle}` : ''}`;
+  }
 }
 
 /**
@@ -63,7 +201,20 @@ function computeEventHash(
 export async function logAuditEvent(params: AuditLogParams): Promise<void> {
   const requestId = params.requestId || uuidv4();
   const occurredAt = new Date().toISOString();
-  const detailsJson = JSON.stringify(params.details || {});
+
+  const sanitized = sanitizeAuditDetails(params.details);
+  const description = params.description || formatAuditDescription(params);
+  const targetResourceType = params.targetResourceType || (params.documentId ? 'document' : 'system');
+  const targetResourceId = params.targetResourceId ?? params.documentId ?? null;
+
+  const enrichedDetails: Record<string, unknown> = {
+    ...sanitized,
+    description,
+    target_resource_type: targetResourceType,
+    target_resource_id: targetResourceId,
+  };
+
+  const detailsJson = JSON.stringify(enrichedDetails);
 
   try {
     if (!isSupabaseConfigured()) {
@@ -77,7 +228,7 @@ export async function logAuditEvent(params: AuditLogParams): Promise<void> {
         ip_hash: hashPii(params.ipAddress),
         user_agent_hash: hashPii(params.userAgent),
         request_id: requestId,
-        details_jsonb: params.details || {},
+        details_jsonb: enrichedDetails,
       });
       return;
     }
@@ -112,7 +263,7 @@ export async function logAuditEvent(params: AuditLogParams): Promise<void> {
       ip_hash: hashPii(params.ipAddress),
       user_agent_hash: hashPii(params.userAgent),
       request_id: requestId,
-      details_jsonb: params.details || {},
+      details_jsonb: enrichedDetails,
       prev_hash: prevHash,
       event_hash: eventHash,
     });

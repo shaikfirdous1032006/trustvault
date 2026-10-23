@@ -26,17 +26,6 @@ export async function POST(request: NextRequest) {
     return crossOrigin;
   }
 
-  if (isSupabaseConfigured()) {
-    return NextResponse.json(
-      {
-        success: false,
-        error:
-          "Registration through Supabase is not implemented in this endpoint.",
-      },
-      { status: 501 }
-    );
-  }
-
   const { ipAddress, userAgent } = await getRequestMeta();
 
   const limit = checkRateLimit(
@@ -46,6 +35,16 @@ export async function POST(request: NextRequest) {
   );
 
   if (!limit.allowed) {
+    await logAuditEvent({
+      actorId: null,
+      actorEmail: null,
+      action: "register_failure",
+      result: "denied",
+      ipAddress,
+      userAgent,
+      details: { reason: "Rate limit exceeded" },
+    });
+
     return NextResponse.json(
       {
         success: false,
@@ -60,6 +59,93 @@ export async function POST(request: NextRequest) {
         },
       }
     );
+  }
+
+  if (isSupabaseConfigured()) {
+    try {
+      const { createAdminClient } = await import("@/lib/supabase/server");
+      const supabaseAdmin = createAdminClient();
+      const body = await request.json();
+      const parsed = registerSchema.safeParse(body);
+
+      if (!parsed.success) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              parsed.error.issues[0]?.message ||
+              "Enter a valid name, email, password (min 8 chars), and role.",
+          },
+          { status: 400 }
+        );
+      }
+
+      const normalizedEmail = parsed.data.email.trim().toLowerCase();
+      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+        email: normalizedEmail,
+        password: parsed.data.password,
+        email_confirm: true,
+        user_metadata: {
+          full_name: parsed.data.full_name,
+          role: parsed.data.role,
+        },
+      });
+
+      if (authError || !authData?.user) {
+        await logAuditEvent({
+          actorId: null,
+          actorEmail: normalizedEmail,
+          action: "register_failure",
+          result: "denied",
+          ipAddress,
+          userAgent,
+          details: { reason: authError?.message || "Registration failed" },
+        });
+
+        return NextResponse.json(
+          { success: false, error: authError?.message || "Registration failed" },
+          { status: 400 }
+        );
+      }
+
+      await logAuditEvent({
+        actorId: authData.user.id,
+        actorEmail: normalizedEmail,
+        action: "register",
+        result: "allowed",
+        ipAddress,
+        userAgent,
+        description: `New user ${normalizedEmail} registered with role ${parsed.data.role}`,
+        targetResourceType: "user",
+        targetResourceId: authData.user.id,
+        details: {
+          operation: "account_registration",
+          assigned_role: parsed.data.role,
+        },
+      });
+
+      return NextResponse.json(
+        {
+          success: true,
+          message: "Account created successfully. Sign in to continue.",
+          data: {
+            user: {
+              id: authData.user.id,
+              email: normalizedEmail,
+              full_name: parsed.data.full_name,
+              role: parsed.data.role,
+            },
+          },
+        },
+        { status: 201 }
+      );
+    } catch (err: unknown) {
+      console.error("[AUTH] Supabase registration error:", err);
+      return NextResponse.json(
+        { success: false, error: "Registration failed due to a server error." },
+        { status: 500 }
+      );
+    }
   }
 
   try {
@@ -115,6 +201,18 @@ export async function POST(request: NextRequest) {
     });
 
     if ("error" in result) {
+      await logAuditEvent({
+        actorId: null,
+        actorEmail: normalizedEmail,
+        action: "register_failure",
+        result: "denied",
+        ipAddress,
+        userAgent,
+        details: {
+          reason: "An account with this email already exists",
+        },
+      });
+
       return NextResponse.json(
         {
           success: false,
@@ -130,10 +228,13 @@ export async function POST(request: NextRequest) {
     await logAuditEvent({
       actorId: result.user.id,
       actorEmail: result.user.email,
-      action: "admin_action",
+      action: "register",
       result: "allowed",
       ipAddress,
       userAgent,
+      description: `New user ${result.user.email} registered with role ${selectedRole}`,
+      targetResourceType: "user",
+      targetResourceId: result.user.id,
       details: {
         operation: "account_registration",
         assigned_role: selectedRole,

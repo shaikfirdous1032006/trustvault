@@ -218,6 +218,16 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (!profile || profile.is_active === false) {
+      await logAuditEvent({
+        actorId: data.user.id,
+        actorEmail: data.user.email || normalizedEmail,
+        action: 'login_failure',
+        result: 'denied',
+        ipAddress,
+        userAgent,
+        details: { reason: 'Account inactive' },
+      });
+
       return NextResponse.json(
         { success: false, error: 'Account is deactivated. Please contact support.' },
         { status: 403 }

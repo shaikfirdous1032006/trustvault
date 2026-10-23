@@ -110,7 +110,7 @@ interface ShareLinkView {
   is_active: boolean;
 }
 
-type Tab = "details" | "permissions" | "share" | "versions" | "audit" | "ai_assistant";
+type Tab = "details" | "preview" | "permissions" | "share" | "versions" | "audit" | "ai_assistant";
 
 export default function DocumentDetailPage({
   params: paramsPromise,
@@ -404,6 +404,7 @@ export default function DocumentDetailPage({
 
   const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
     { key: "details", label: "Details", icon: <FileText className="w-4 h-4" /> },
+    { key: "preview" as const, label: "Preview", icon: <Eye className="w-4 h-4" /> },
     ...(isOwner
       ? [
           {
@@ -463,6 +464,14 @@ export default function DocumentDetailPage({
 
         <div className="flex items-center gap-2">
           <button
+            onClick={() => setActiveTab("preview")}
+            className="btn btn-secondary btn-sm"
+            id="preview-document-btn"
+          >
+            <Eye className="w-4 h-4" />
+            Preview
+          </button>
+          <button
             onClick={handleDownload}
             disabled={downloading}
             className="btn btn-primary btn-sm"
@@ -508,6 +517,9 @@ export default function DocumentDetailPage({
       {/* Tab Content */}
       {activeTab === "details" && (
         <DetailsTab doc={doc} onRefresh={fetchDocument} />
+      )}
+      {activeTab === "preview" && (
+        <PreviewTab doc={doc} />
       )}
       {activeTab === "permissions" && (
         <PermissionsTab
@@ -590,6 +602,170 @@ export default function DocumentDetailPage({
 }
 
 /* === Tab Components === */
+
+function PreviewTab({ doc }: { doc: Document }) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [csvData, setCsvData] = useState<{ headers: string[]; rows: string[][] } | null>(null);
+  const [textContent, setTextContent] = useState<string | null>(null);
+
+  const isPdf = doc.mime_type === "application/pdf" || doc.file_name.toLowerCase().endsWith(".pdf");
+  const isCsv = doc.mime_type === "text/csv" || doc.file_name.toLowerCase().endsWith(".csv");
+  const isText = doc.mime_type.startsWith("text/") || doc.file_name.toLowerCase().endsWith(".txt") || doc.file_name.toLowerCase().endsWith(".json");
+  const isImage = doc.mime_type.startsWith("image/");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadContent() {
+      if (!isCsv && !isText) {
+        setLoading(false);
+        return;
+      }
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(`/api/documents/${doc.id}/preview`);
+        if (!res.ok) {
+          throw new Error("Unable to load preview");
+        }
+        const text = await res.text();
+        if (cancelled) return;
+        if (isCsv) {
+          const lines = text.trim().split(/\r?\n/).filter(Boolean);
+          if (lines.length > 0) {
+            const headers = lines[0].split(",").map((h) => h.trim().replace(/^"|"$/g, ""));
+            const rows = lines.slice(1).map((l) =>
+              l.split(",").map((cell) => cell.trim().replace(/^"|"$/g, ""))
+            );
+            setCsvData({ headers, rows });
+          }
+        } else {
+          setTextContent(text);
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Failed to load document preview";
+        if (!cancelled) setError(msg);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void loadContent();
+    return () => {
+      cancelled = true;
+    };
+  }, [doc.id, isCsv, isText]);
+
+  return (
+    <div className="space-y-4 animate-fade-in">
+      <div className="card">
+        <div className="flex items-center justify-between pb-4 border-b border-[var(--card-border)] mb-4">
+          <div className="flex items-center gap-2">
+            <Eye className="w-5 h-5 text-brand-700" />
+            <h3 className="text-lg font-semibold">Secure In-App Preview</h3>
+            <span className="badge badge-brand text-[10px]">Zero-Leak Streaming</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <a
+              href={`/api/documents/${doc.id}/preview`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-secondary btn-sm"
+              id="open-in-new-window-link"
+            >
+              Open in New Window
+            </a>
+          </div>
+        </div>
+
+        {isPdf && (
+          <div className="relative rounded-lg overflow-hidden border border-[var(--card-border)] bg-surface-200">
+            <iframe
+              src={`/api/documents/${doc.id}/preview#toolbar=1`}
+              className="w-full h-[680px] rounded-lg"
+              title={doc.title}
+            />
+          </div>
+        )}
+
+        {isCsv && (
+          <div className="space-y-3">
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-6 h-6 animate-spin text-brand-700" />
+              </div>
+            ) : error ? (
+              <div className="p-4 bg-danger/10 text-danger rounded-lg text-sm">{error}</div>
+            ) : csvData ? (
+              <div className="overflow-x-auto rounded-lg border border-[var(--card-border)]">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-surface-200 border-b border-[var(--card-border)]">
+                    <tr>
+                      {csvData.headers.map((h, i) => (
+                        <th key={i} className="p-3 font-semibold text-[var(--foreground)]">
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--card-border)] font-mono">
+                    {csvData.rows.map((row, rIdx) => (
+                      <tr key={rIdx} className="hover:bg-surface-100 transition-colors">
+                        {row.map((cell, cIdx) => (
+                          <td key={cIdx} className="p-3">
+                            {cell}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-sm text-[var(--muted)]">No data found in CSV</p>
+            )}
+          </div>
+        )}
+
+        {isText && (
+          <div>
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-6 h-6 animate-spin text-brand-700" />
+              </div>
+            ) : (
+              <pre className="p-4 rounded-lg bg-surface-200 border border-[var(--card-border)] text-xs font-mono overflow-x-auto whitespace-pre-wrap max-h-[600px]">
+                {textContent}
+              </pre>
+            )}
+          </div>
+        )}
+
+        {isImage && (
+          <div className="flex justify-center p-4 bg-surface-200 rounded-lg border border-[var(--card-border)]">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`/api/documents/${doc.id}/preview`}
+              alt={doc.title}
+              className="max-h-[600px] object-contain rounded"
+            />
+          </div>
+        )}
+
+        {!isPdf && !isCsv && !isText && !isImage && (
+          <div className="py-12 text-center text-sm text-[var(--muted)]">
+            <FileText className="w-12 h-12 mx-auto mb-3 opacity-30" />
+            <p>
+              Direct preview is not available for format: <code>{doc.mime_type}</code>
+            </p>
+            <p className="mt-1">
+              Please use the Download button to view this file in its native application.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function DetailsTab({
   doc,

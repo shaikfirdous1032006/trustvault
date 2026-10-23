@@ -1,0 +1,11 @@
+customer_id,full_name,email_address,account_tier,country_code,balance_usd,risk_status,synthetic_flag
+CUST-1001,Johnathan Doe,j.doe.synthetic@trustvault-test.internal,Enterprise,US,145200.50,LOW,TRUE_TEST_DATA
+CUST-1002,Jane M. Smith,j.smith.synthetic@trustvault-test.internal,Professional,GB,89400.00,LOW,TRUE_TEST_DATA
+CUST-1003,Carlos Garcia,c.garcia.synthetic@trustvault-test.internal,Standard,ES,23150.75,MEDIUM,TRUE_TEST_DATA
+CUST-1004,Aiko Tanaka,a.tanaka.synthetic@trustvault-test.internal,Enterprise,JP,310450.00,LOW,TRUE_TEST_DATA
+CUST-1005,Fatima Al-Mansoor,f.mansoor.synthetic@trustvault-test.internal,Government,AE,540000.25,LOW,TRUE_TEST_DATA
+CUST-1006,Liam O'Connor,l.oconnor.synthetic@trustvault-test.internal,Standard,IE,12400.00,MEDIUM,TRUE_TEST_DATA
+CUST-1007,Elena Rostova,e.rostova.synthetic@trustvault-test.internal,Professional,DE,67890.10,LOW,TRUE_TEST_DATA
+CUST-1008,Kowalski Piotr,p.kowalski.synthetic@trustvault-test.internal,Standard,PL,18900.50,HIGH,TRUE_TEST_DATA
+CUST-1009,Mei Ling Chen,m.chen.synthetic@trustvault-test.internal,Enterprise,SG,425100.00,LOW,TRUE_TEST_DATA
+CUST-1010,Sarah Jenkins,s.jenkins.synthetic@trustvault-test.internal,Professional,AU,95300.80,LOW,TRUE_TEST_DATA

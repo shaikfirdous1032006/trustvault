@@ -42,7 +42,14 @@ export default async function DashboardPage() {
     action: string;
     result: string;
     occurred_at: string;
+    actor_id?: string | null;
     actor_email: string | null;
+    document_id?: string | null;
+    document_title?: string | null;
+    description?: string;
+    target_resource_type?: string;
+    target_resource_id?: string | null;
+    details?: Record<string, unknown>;
   }> = [];
   let deniedCount = 0;
   let sharedCount = 0;
@@ -67,13 +74,71 @@ export default async function DashboardPage() {
         .limit(5);
       recentDocs = rDocs || [];
 
+      const { formatAuditDescription } = await import("@/lib/audit");
+      type AuditAction = import("@/lib/types").AuditAction;
+      type AuditResult = import("@/lib/types").AuditResult;
+
       if (user.role === "admin" || user.role === "owner") {
         const { data: events } = await supabase
           .from("audit_events")
-          .select("id, action, result, occurred_at, actor_email")
+          .select("id, action, result, occurred_at, actor_id, actor_email, document_id, details_jsonb")
           .order("occurred_at", { ascending: false })
-          .limit(8);
-        recentAudit = events || [];
+          .limit(10);
+        recentAudit = (events || []).map((e) => {
+          const details = (e.details_jsonb as Record<string, unknown>) || {};
+          return {
+            id: e.id,
+            action: e.action,
+            result: e.result,
+            occurred_at: e.occurred_at,
+            actor_id: e.actor_id,
+            actor_email: e.actor_email,
+            document_id: e.document_id,
+            document_title: (details.file_name as string) || (details.title as string) || (details.document_title as string) || null,
+            description: (details.description as string) || formatAuditDescription({
+              actorId: e.actor_id,
+              actorEmail: e.actor_email,
+              documentId: e.document_id,
+              action: e.action as AuditAction,
+              result: e.result as AuditResult,
+              details,
+            }),
+            target_resource_type: (details.target_resource_type as string) || (e.document_id ? "document" : "system"),
+            target_resource_id: (details.target_resource_id as string) || e.document_id || null,
+            details,
+          };
+        });
+      } else {
+        const { data: events } = await supabase
+          .from("audit_events")
+          .select("id, action, result, occurred_at, actor_id, actor_email, document_id, details_jsonb")
+          .eq("actor_id", user.id)
+          .order("occurred_at", { ascending: false })
+          .limit(10);
+        recentAudit = (events || []).map((e) => {
+          const details = (e.details_jsonb as Record<string, unknown>) || {};
+          return {
+            id: e.id,
+            action: e.action,
+            result: e.result,
+            occurred_at: e.occurred_at,
+            actor_id: e.actor_id,
+            actor_email: e.actor_email,
+            document_id: e.document_id,
+            document_title: (details.file_name as string) || (details.title as string) || (details.document_title as string) || null,
+            description: (details.description as string) || formatAuditDescription({
+              actorId: e.actor_id,
+              actorEmail: e.actor_email,
+              documentId: e.document_id,
+              action: e.action as AuditAction,
+              result: e.result as AuditResult,
+              details,
+            }),
+            target_resource_type: (details.target_resource_type as string) || (e.document_id ? "document" : "system"),
+            target_resource_id: (details.target_resource_id as string) || e.document_id || null,
+            details,
+          };
+        });
       }
 
       if (user.role === "admin") {
@@ -96,7 +161,14 @@ export default async function DashboardPage() {
   } else {
     const { getStore, withUser } = await import("@/lib/local-db");
     const { evaluateDocumentPermission } = await import("@/lib/permission");
+    const { formatAuditDescription } = await import("@/lib/audit");
+    type AuditAction = import("@/lib/types").AuditAction;
+    type AuditResult = import("@/lib/types").AuditResult;
+
     const store = getStore();
+    const docMap = new Map<string, string>();
+    store.documents.forEach((d) => docMap.set(d.id, d.title));
+
     const visible = store.documents.filter((doc) =>
       evaluateDocumentPermission({
         document: doc,
@@ -115,18 +187,45 @@ export default async function DashboardPage() {
       (p) => p.user_id === user.id && !p.revoked_at
     ).length;
     deniedCount = store.audit.filter((e) => e.result === "denied").length;
+
+    const mapStoreAudit = (e: (typeof store.audit)[0]) => {
+      const details = (e.details_jsonb as Record<string, unknown>) || {};
+      const docTitle = e.document_id ? docMap.get(e.document_id) || (details.file_name as string) || (details.title as string) || null : null;
+      return {
+        id: e.id,
+        action: e.action,
+        result: e.result,
+        occurred_at: e.occurred_at,
+        actor_id: e.actor_id,
+        actor_email: e.actor_email,
+        document_id: e.document_id,
+        document_title: docTitle,
+        description: (details.description as string) || formatAuditDescription({
+          actorId: e.actor_id,
+          actorEmail: e.actor_email,
+          documentId: e.document_id,
+          action: e.action as AuditAction,
+          result: e.result as AuditResult,
+          details: { ...details, title: docTitle },
+        }),
+        target_resource_type: (details.target_resource_type as string) || (e.document_id ? "document" : "system"),
+        target_resource_id: (details.target_resource_id as string) || e.document_id || null,
+        details,
+      };
+    };
+
     if (user.role === "admin" || user.role === "owner") {
       recentAudit = store.audit
         .slice()
         .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))
-        .slice(0, 8)
-        .map((e) => ({
-          id: e.id,
-          action: e.action,
-          result: e.result,
-          occurred_at: e.occurred_at,
-          actor_email: e.actor_email,
-        }));
+        .slice(0, 10)
+        .map(mapStoreAudit);
+    } else {
+      recentAudit = store.audit
+        .filter((e) => e.actor_email === user.email || e.actor_id === user.id)
+        .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))
+        .slice(0, 10)
+        .map(mapStoreAudit);
     }
   }
 

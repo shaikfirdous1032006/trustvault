@@ -15,7 +15,10 @@ import {
   ShieldAlert,
   RefreshCw,
   Download,
+  Users,
+  WifiOff,
 } from "lucide-react";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
 interface AuditEvent {
   id: string;
@@ -32,12 +35,23 @@ interface AuditEvent {
   prev_hash: string | null;
 }
 
+interface AuditMetrics {
+  period: string;
+  totalActivities: number;
+  allowedCount: number;
+  deniedCount: number;
+  securityEventsCount: number;
+  mostActiveUsers: Array<{ email: string; count: number }>;
+}
+
 const ACTIONS = [
   "all",
   "auth",
   "login",
   "logout",
   "login_failure",
+  "register",
+  "register_failure",
   "documents",
   "upload",
   "download",
@@ -49,6 +63,12 @@ const ACTIONS = [
   "permissions",
   "permission_grant",
   "permission_revoke",
+  "permission_update",
+  "admin_action",
+  "role_change",
+  "account_activated",
+  "account_deactivated",
+  "security_alert",
   "search",
 ];
 
@@ -62,6 +82,13 @@ export default function AdminAuditPage() {
   const [verifying, setVerifying] = useState(false);
   const [tampering, setTampering] = useState(false);
   const [tamperStatus, setTamperStatus] = useState<string | null>(null);
+  const [realtimeConnected, setRealtimeConnected] = useState<boolean | null>(null);
+
+  // Admin Monitoring Metrics
+  const [metrics, setMetrics] = useState<AuditMetrics | null>(null);
+  const [metricsPeriod, setMetricsPeriod] = useState<"24h" | "7d" | "30d" | "all">("7d");
+  const [loadingMetrics, setLoadingMetrics] = useState(false);
+
   const [verificationResult, setVerificationResult] = useState<{
     valid: boolean;
     mismatches: Array<{ id: string; expected: string; actual: string }>;
@@ -73,6 +100,43 @@ export default function AdminAuditPage() {
   const refreshEvents = useCallback(() => {
     setRefreshTrigger((prev) => prev + 1);
   }, []);
+
+  // Fetch admin activity metrics
+  const refreshMetrics = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/admin/audit/metrics?period=${metricsPeriod}`);
+      const data = await res.json();
+      if (data.success) {
+        setMetrics(data.data);
+      }
+    } catch {
+      /* ignored */
+    }
+  }, [metricsPeriod]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadMetrics() {
+      setLoadingMetrics(true);
+      try {
+        const res = await fetch(`/api/admin/audit/metrics?period=${metricsPeriod}`);
+        const data = await res.json();
+        if (data.success && !cancelled) {
+          setMetrics(data.data);
+        }
+      } catch {
+        /* ignored */
+      } finally {
+        if (!cancelled) {
+          setLoadingMetrics(false);
+        }
+      }
+    }
+    void loadMetrics();
+    return () => {
+      cancelled = true;
+    };
+  }, [metricsPeriod]);
 
   async function handleVerifyChain() {
     setVerifying(true);
@@ -135,6 +199,7 @@ export default function AdminAuditPage() {
     }
   }
 
+  // Load audit events table
   useEffect(() => {
     let cancelled = false;
 
@@ -168,18 +233,199 @@ export default function AdminAuditPage() {
     };
   }, [page, actionFilter, resultFilter, refreshTrigger, pageSize]);
 
+  // Real-time listener for audit events
+  useEffect(() => {
+    if (!isSupabaseConfigured()) {
+      return;
+    }
+
+    const supabase = createClient();
+    const channel = supabase
+      .channel("admin-audit-stream")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "audit_events",
+        },
+        (payload) => {
+          const newRow = payload.new as AuditEvent;
+          if (!newRow || !newRow.id) return;
+
+          setEvents((prev) => {
+            if (prev.some((e) => e.id === newRow.id)) return prev;
+            return [newRow, ...prev];
+          });
+          setTotal((prev) => prev + 1);
+          void refreshMetrics();
+        }
+      )
+      .subscribe((status) => {
+        setRealtimeConnected(status === "SUBSCRIBED");
+      });
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [refreshMetrics]);
+
   const totalPages = Math.ceil(total / pageSize);
 
   return (
     <div className="max-w-6xl mx-auto animate-fade-in">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Activity className="w-6 h-6 text-brand-400" />
-          Platform Audit Log
-        </h1>
-        <p className="text-[var(--muted)] text-sm mt-1">
-          Tamper-evident, append-only audit trail with SHA-256 hash chain
-        </p>
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <Activity className="w-6 h-6 text-brand-400" />
+              Platform Audit & Activity Monitoring
+            </h1>
+            {realtimeConnected === true && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Live Realtime
+              </span>
+            )}
+            {realtimeConnected === false && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                <WifiOff className="w-2.5 h-2.5" />
+                Realtime Reconnecting
+              </span>
+            )}
+          </div>
+          <p className="text-[var(--muted)] text-sm mt-1">
+            Tamper-evident, append-only cryptographic audit trail with SHA-256 hash chain and live event streaming
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <button
+            onClick={() => {
+              refreshEvents();
+              void refreshMetrics();
+            }}
+            className="btn btn-secondary btn-sm flex items-center gap-1.5"
+            title="Refresh logs and metrics"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* ADMIN ACTIVITY MONITORING METRICS */}
+      <div className="card mb-6 p-4 border border-brand-500/20 bg-gradient-to-br from-[var(--card-bg)] via-[var(--input-bg)] to-[var(--card-bg)]">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 border-b border-[var(--sidebar-border)] pb-3">
+          <div className="flex items-center gap-2">
+            <Activity className="w-4 h-4 text-brand-400" />
+            <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--foreground)]">
+              Activity Monitoring Metrics
+            </h2>
+            {loadingMetrics && <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-400" />}
+          </div>
+
+          <div className="flex items-center gap-1 bg-[var(--input-bg)] p-0.5 rounded-lg border border-[var(--card-border)]">
+            {(["24h", "7d", "30d", "all"] as const).map((p) => (
+              <button
+                key={p}
+                onClick={() => setMetricsPeriod(p)}
+                className={`px-2 py-0.5 rounded text-xs font-semibold transition cursor-pointer ${
+                  metricsPeriod === p
+                    ? "bg-brand-600 text-white shadow-sm"
+                    : "text-[var(--muted)] hover:text-[var(--foreground)]"
+                }`}
+              >
+                {p === "24h" ? "24 Hours" : p === "7d" ? "7 Days" : p === "30d" ? "30 Days" : "All Time"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="p-3 rounded-lg bg-[var(--card-bg)] border border-[var(--card-border)]">
+            <span className="text-xs text-[var(--muted)] flex items-center gap-1.5">
+              <Activity className="w-3.5 h-3.5 text-brand-400" />
+              Total Activities ({metricsPeriod})
+            </span>
+            <div className="text-xl font-bold mt-1 text-[var(--foreground)]">
+              {metrics ? metrics.totalActivities : total}
+            </div>
+            <span className="text-[10px] text-[var(--muted)] font-mono">
+              Database verified records
+            </span>
+          </div>
+
+          <div className="p-3 rounded-lg bg-[var(--card-bg)] border border-[var(--card-border)]">
+            <span className="text-xs text-[var(--muted)] flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              Allowed vs Denied
+            </span>
+            <div className="flex items-baseline gap-2 mt-1">
+              <span className="text-xl font-bold text-emerald-400">
+                {metrics ? metrics.allowedCount : "—"}
+              </span>
+              <span className="text-xs text-[var(--muted)]">/</span>
+              <span className="text-lg font-bold text-rose-400">
+                {metrics ? metrics.deniedCount : "—"}
+              </span>
+            </div>
+            <div className="w-full bg-[var(--input-bg)] h-1.5 rounded-full overflow-hidden mt-1.5 flex">
+              <div
+                className="bg-emerald-400 h-full"
+                style={{
+                  width: metrics && metrics.totalActivities > 0
+                    ? `${(metrics.allowedCount / metrics.totalActivities) * 100}%`
+                    : "100%",
+                }}
+              />
+              <div
+                className="bg-rose-400 h-full"
+                style={{
+                  width: metrics && metrics.totalActivities > 0
+                    ? `${(metrics.deniedCount / metrics.totalActivities) * 100}%`
+                    : "0%",
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="p-3 rounded-lg bg-[var(--card-bg)] border border-[var(--card-border)]">
+            <span className="text-xs text-[var(--muted)] flex items-center gap-1.5">
+              <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+              Security Events
+            </span>
+            <div className="text-xl font-bold mt-1 text-rose-400">
+              {metrics ? metrics.securityEventsCount : "—"}
+            </div>
+            <span className="text-[10px] text-[var(--muted)] font-mono">
+              Denied requests & auth failures
+            </span>
+          </div>
+
+          <div className="p-3 rounded-lg bg-[var(--card-bg)] border border-[var(--card-border)]">
+            <span className="text-xs text-[var(--muted)] flex items-center gap-1.5 mb-1">
+              <Users className="w-3.5 h-3.5 text-blue-400" />
+              Most Active Operators
+            </span>
+            {metrics && metrics.mostActiveUsers.length > 0 ? (
+              <div className="space-y-1">
+                {metrics.mostActiveUsers.slice(0, 2).map((u) => (
+                  <div key={u.email} className="flex items-center justify-between text-xs">
+                    <span className="text-[var(--foreground)] truncate max-w-[130px] font-mono text-[11px]">
+                      {u.email}
+                    </span>
+                    <span className="badge badge-brand text-[9px] py-0 px-1">
+                      {u.count}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <span className="text-xs text-[var(--muted)]">No operator activity yet</span>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Security info & Audit Chain Verification */}
@@ -333,7 +579,7 @@ export default function AdminAuditPage() {
           id="tab-login-logout-history"
         >
           <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-          🔑 Login & Logout History
+          🔑 Login & Auth History
         </button>
 
         <button
@@ -428,63 +674,66 @@ export default function AdminAuditPage() {
                 <th>Actor</th>
                 <th>Action</th>
                 <th>Result</th>
-                <th>Document</th>
-                <th>Details</th>
+                <th>Document / Resource</th>
+                <th>Description / Details</th>
                 <th className="hidden lg:table-cell">Hash</th>
               </tr>
             </thead>
             <tbody>
-              {events.map((event) => (
-                <tr key={event.id}>
-                  <td className="whitespace-nowrap">
-                    <div className="flex items-center gap-1.5 text-xs">
-                      <Clock className="w-3 h-3 text-[var(--muted)]" />
-                      {new Date(event.occurred_at).toLocaleString()}
-                    </div>
-                  </td>
-                  <td className="text-xs">
-                    {event.actor_email || (
-                      <span className="text-[var(--muted)]">System</span>
-                    )}
-                  </td>
-                  <td>
-                    <span className="badge badge-neutral text-xs">
-                      {formatAction(event.action)}
-                    </span>
-                  </td>
-                  <td>
-                    <span
-                      className={`badge ${
-                        event.result === "allowed"
-                          ? "badge-success"
-                          : "badge-danger"
-                      }`}
-                    >
-                      {event.result === "allowed" ? (
-                        <CheckCircle2 className="w-3 h-3 mr-1" />
-                      ) : (
-                        <AlertTriangle className="w-3 h-3 mr-1" />
+              {events.map((event) => {
+                const details = event.details_jsonb || {};
+                const description = (details.description as string) || null;
+
+                return (
+                  <tr key={event.id}>
+                    <td className="whitespace-nowrap">
+                      <div className="flex items-center gap-1.5 text-xs">
+                        <Clock className="w-3 h-3 text-[var(--muted)]" />
+                        {new Date(event.occurred_at).toLocaleString()}
+                      </div>
+                    </td>
+                    <td className="text-xs">
+                      {event.actor_email || (
+                        <span className="text-[var(--muted)]">System</span>
                       )}
-                      {event.result}
-                    </span>
-                  </td>
-                  <td className="text-xs font-mono text-[var(--muted)]">
-                    {event.document_id
-                      ? event.document_id.substring(0, 8) + "..."
-                      : "—"}
-                  </td>
-                  <td className="text-xs text-[var(--muted)] max-w-[200px] truncate">
-                    {Object.keys(event.details_jsonb).length > 0
-                      ? JSON.stringify(event.details_jsonb).substring(0, 60)
-                      : "—"}
-                  </td>
-                  <td className="hidden lg:table-cell">
-                    <code className="text-[10px] text-[var(--muted)] font-mono">
-                      {event.event_hash.substring(0, 12)}...
-                    </code>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td>
+                      <span className="badge badge-neutral text-xs">
+                        {formatAction(event.action)}
+                      </span>
+                    </td>
+                    <td>
+                      <span
+                        className={`badge ${
+                          event.result === "allowed"
+                            ? "badge-success"
+                            : "badge-danger"
+                        }`}
+                      >
+                        {event.result === "allowed" ? (
+                          <CheckCircle2 className="w-3 h-3 mr-1" />
+                        ) : (
+                          <AlertTriangle className="w-3 h-3 mr-1" />
+                        )}
+                        {event.result}
+                      </span>
+                    </td>
+                    <td className="text-xs font-mono text-[var(--muted)]">
+                      {event.document_id
+                        ? event.document_id.substring(0, 8) + "..."
+                        : (details.target_resource_type as string) || "—"}
+                    </td>
+                    <td className="text-xs text-[var(--foreground)] max-w-[260px] truncate" title={description || JSON.stringify(details)}>
+                      {description || (Object.keys(details).length > 0 ? JSON.stringify(details).substring(0, 60) : "—")}
+                    </td>
+                    <td className="hidden lg:table-cell">
+                      <code className="text-[10px] text-[var(--muted)] font-mono">
+                        {event.event_hash.substring(0, 12)}...
+                      </code>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -537,18 +786,25 @@ function formatAction(action: string): string {
     permissions: "🛡️ All Permission Grants",
     upload: "Upload",
     download: "Download",
-    preview: "View",
+    preview: "Preview",
     update: "Update",
     delete: "Delete",
     restore: "Restore",
     permission_grant: "Grant Permission",
     permission_revoke: "Revoke Permission",
+    permission_update: "Update Permission",
     login: "Login",
     login_failure: "Login Failed",
     logout: "Logout",
+    register: "User Registration",
+    register_failure: "Registration Failed",
     search: "Search",
     version_upload: "New Version",
     admin_action: "Admin Action",
+    role_change: "Role Change",
+    account_activated: "Account Activated",
+    account_deactivated: "Account Deactivated",
+    security_alert: "Security Alert",
     ai_suggestion: "AI Suggestion",
     ai_suggestion_confirmed: "AI Confirmed",
   };

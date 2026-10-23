@@ -9,10 +9,19 @@ export type AuditAction =
   | 'restore'
   | 'permission_grant'
   | 'permission_revoke'
+  | 'permission_update'
   | 'login'
   | 'login_failure'
   | 'logout'
+  | 'register'
+  | 'register_failure'
+  | 'user_created'
+  | 'role_change'
+  | 'account_activated'
+  | 'account_deactivated'
   | 'admin_action'
+  | 'security_alert'
+  | 'profile_update'
   | 'search'
   | 'version_upload'
   | 'ai_suggestion'
@@ -24,6 +33,21 @@ export type AuditAction =
   | 'ai_assistant_query';
 
 export type AuditResult = 'allowed' | 'denied';
+
+export interface ActivityFeedItem {
+  id: string;
+  action: AuditAction | string;
+  result: AuditResult | string;
+  occurred_at: string;
+  actor_id: string | null;
+  actor_email: string | null;
+  document_id: string | null;
+  document_title?: string | null;
+  description: string;
+  target_resource_type?: string;
+  target_resource_id?: string | null;
+  details: Record<string, unknown>;
+}
 
 export interface User {
   id: string;
