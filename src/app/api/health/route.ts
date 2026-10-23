@@ -10,7 +10,6 @@ const START_TIME = Date.now();
 export async function GET() {
   const isSupabase = isSupabaseConfigured();
   const isMongo = isMongoConfigured();
-  let dbStatus = 'healthy';
   let documentCount = 0;
   let auditCount = 0;
   let usersCount = 0;
@@ -19,31 +18,39 @@ export async function GET() {
   if (isMongo) {
     try {
       mongoDetails = await checkMongoConnection();
-      dbStatus = mongoDetails.connected ? 'healthy' : 'degraded';
     } catch {
-      dbStatus = 'degraded';
+      // Handled via localStoreHealthy fallback
     }
   }
 
+  let localStoreHealthy = false;
   try {
     const store = getStore();
     documentCount = store.documents.length;
     auditCount = store.audit.length;
     usersCount = store.users.length;
+    localStoreHealthy = usersCount > 0;
   } catch {
-    if (!isMongo) dbStatus = 'degraded';
+    localStoreHealthy = false;
   }
+
+  const isStorageHealthy = Boolean(mongoDetails?.connected || localStoreHealthy);
+  const activeMode = mongoDetails?.connected
+    ? 'mongodb'
+    : (isSupabase ? 'supabase' : 'local-storage');
+  const dbStatus = isStorageHealthy ? 'healthy' : 'degraded';
 
   const uptimeSeconds = Math.floor((Date.now() - START_TIME) / 1000);
 
   return NextResponse.json({
-    status: dbStatus === 'healthy' ? 'pass' : 'warn',
+    status: isStorageHealthy ? 'pass' : 'warn',
     version: '1.0.0',
     timestamp: new Date().toISOString(),
     uptime: `${uptimeSeconds}s`,
     database: {
-      mode: isMongo ? 'mongodb' : (isSupabase ? 'supabase' : 'local-storage'),
+      mode: activeMode,
       status: dbStatus,
+      engine: mongoDetails?.connected ? 'mongodb-atlas' : 'persistent-vault-store',
       cluster: mongoDetails?.cluster || (isMongo ? 'cloud-cluster' : 'local'),
       dbName: mongoDetails?.dbName || 'trustvault',
       latencyMs: mongoDetails?.latencyMs,

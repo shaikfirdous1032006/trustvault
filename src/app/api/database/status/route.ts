@@ -47,6 +47,15 @@ export async function GET() {
         audit: store.audit.length,
       };
     }
+  } else {
+    counts = {
+      users: store.users.length,
+      documents: store.documents.length,
+      permissions: store.permissions.length,
+      versions: store.versions.length,
+      share_links: store.share_links.length,
+      audit: store.audit.length,
+    };
   }
 
   return NextResponse.json({
